@@ -15,7 +15,7 @@ near_end_reward = -0.2
 end_reward = 10
 
 # Additional collision penalty
-collision_penalty = -10  # one-time, ends episode
+collision_penalty = -100  # one-time, ends episode
 
 offset = np.array([0.5, 0.5])
 dis_lim = (agent_size + door_size)/2
@@ -172,6 +172,7 @@ class Cell_Space:
         self.reward = reward
         self.end_reward = end_reward
         self.near_end_reward = near_end_reward
+        self.collision_penalty = collision_penalty
 
         # For the "image-like" state
         self.rows = int((ymax - ymin) / agent_size)
@@ -493,7 +494,7 @@ class Cell_Space:
                 # if dist < agent_size => collision => end
                 if dist< agent_size:
                     done= True
-                    r= -10  # collision penalty
+                    r= self.collision_penalty  # collision penalty
                     break
             if done:
                 break
