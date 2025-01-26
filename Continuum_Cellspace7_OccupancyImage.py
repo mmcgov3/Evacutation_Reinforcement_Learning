@@ -14,6 +14,9 @@ reward = -0.1
 near_end_reward = -0.2
 end_reward = 10
 
+# Additional collision penalty
+collision_penalty = -10  # one-time, ends episode
+
 offset = np.array([0.5, 0.5])
 dis_lim = (agent_size + door_size)/2
 action_force = 1.0
@@ -116,16 +119,16 @@ class Cell_Space:
         zmin=0.0, zmax=2.0,
         rcut=1.5,
         dt=0.1,
-        Number=1,          
-        numExits=1,        
-        numObs=2
+        Number=1
     ):
+        """
+        We'll remove numExits / numObs from the constructor.
+        We'll randomly choose them each reset => [1..3] exits, [0..3] obstacles.
+        """
         self.dt = dt
         self.Number = Number
         self.Total = Number
         self.T = 0.0
-        self.numExits = numExits
-        self.numObs = numObs
 
         # Domain bounding box
         self.L = np.array([
@@ -142,6 +145,9 @@ class Cell_Space:
         ]) / rcut).astype(int)
         self.d_cells = (self.L[:, 1] - self.L[:, 0]) / self.n_cells
 
+        # These will be set at reset
+        self.numExits = 0
+        self.numObs   = 0
         self.Exit = []
         self.Ob = []
         self.Ob_size = []
@@ -167,13 +173,9 @@ class Cell_Space:
         self.end_reward = end_reward
         self.near_end_reward = near_end_reward
 
-        # For the "image-like" state, we define how many rows/cols => each cell is agent_size wide
+        # For the "image-like" state
         self.rows = int((ymax - ymin) / agent_size)
         self.cols = int((xmax - xmin) / agent_size)
-        # We'll produce shape => (3, rows, cols):
-        #   channel 0 => obstacles
-        #   channel 1 => exits
-        #   channel 2 => agent
 
     def initialize_cells(self):
         nx, ny, nz = self.n_cells
@@ -221,48 +223,51 @@ class Cell_Space:
             pass
 
     def randomize_exits_and_obstacles(self):
+        """
+        Now we pick random numExits [1..3], random numObs [0..3].
+        Then place them accordingly.
+        Exits are placed on different walls, no corners, as requested.
+        """
         self.Exit.clear()
         self.Ob.clear()
         self.Ob_size.clear()
+
+        self.numExits = np.random.randint(1,4)  # 1..3
+        self.numObs   = np.random.randint(0,4)  # 0..3
 
         xmin, xmax = self.L[0, 0], self.L[0, 1]
         ymin, ymax = self.L[1, 0], self.L[1, 1]
         zmin, zmax = self.L[2, 0], self.L[2, 1]
         z_fixed = (zmin + zmax)/2
 
-        for _ in range(self.numExits):
-            placed_exit = False
-            tries = 0
-            while not placed_exit:
-                wall_choice = np.random.randint(0, 4)
-                if wall_choice == 0:
-                    x = xmin
-                    y = np.random.uniform(ymin, ymax)
-                    if abs(y - ymin) < 1e-3 or abs(ymax - y) < 1e-3:
-                        continue
-                elif wall_choice == 1:
-                    x = xmax
-                    y = np.random.uniform(ymin, ymax)
-                    if abs(y - ymin) < 1e-3 or abs(ymax - y) < 1e-3:
-                        continue
-                elif wall_choice == 2:
-                    y = ymin
-                    x = np.random.uniform(xmin, xmax)
-                    if abs(x - xmin) < 1e-3 or abs(xmax - x) < 1e-3:
-                        continue
-                else:
-                    y = ymax
-                    x = np.random.uniform(xmin, xmax)
-                    if abs(x - xmin) < 1e-3 or abs(xmax - x) < 1e-3:
-                        continue
-                
-                tries += 1
-                if tries > 10000:
-                    print('Tried reselecting 10000 times. Something failed')
-
-                new_exit_pos = np.array([x, y, z_fixed])
-                self.Exit.append(new_exit_pos)
-                placed_exit = True
+        # We have 4 walls: left(0), right(1), bottom(2), top(3).
+        # We'll randomly choose distinct walls for each exit if possible.
+        # If numExits>4 => not possible, but we only go up to 3.
+        wall_ids = np.random.choice([0,1,2,3], size=self.numExits, replace=False)
+        for w in wall_ids:
+            if w==0:  # left
+                x = xmin
+                y = np.random.uniform(ymin,ymax)
+                # skip corners
+                if abs(y - ymin)<1e-3 or abs(ymax - y)<1e-3:
+                    y = 0.5*(ymin+ymax)
+            elif w==1: # right
+                x = xmax
+                y = np.random.uniform(ymin,ymax)
+                if abs(y - ymin)<1e-3 or abs(ymax - y)<1e-3:
+                    y = 0.5*(ymin+ymax)
+            elif w==2: # bottom
+                y = ymin
+                x = np.random.uniform(xmin,xmax)
+                if abs(x - xmin)<1e-3 or abs(xmax - x)<1e-3:
+                    x = 0.5*(xmin+xmax)
+            else:      # top
+                y = ymax
+                x = np.random.uniform(xmin,xmax)
+                if abs(x - xmin)<1e-3 or abs(xmax - x)<1e-3:
+                    x = 0.5*(xmin+xmax)
+            new_exit_pos = np.array([x,y,z_fixed])
+            self.Exit.append(new_exit_pos)
 
         default_ob_size = 2.0
         agent_pos = self.agent.position
@@ -272,45 +277,44 @@ class Cell_Space:
             while not placed_ob:
                 ox = np.random.uniform(xmin+0.5, xmax-0.5)
                 oy = np.random.uniform(ymin+0.5, ymax-0.5)
-                cand_pos = np.array([ox, oy, z_fixed])
+                cand_pos= np.array([ox, oy, z_fixed])
 
-                if np.linalg.norm(cand_pos - agent_pos) < 1.0:
+                if np.linalg.norm(cand_pos - agent_pos)<1.0:
                     continue
 
-                candidate_radius = default_ob_size / 2
-                no_overlap = True
+                candidate_radius = default_ob_size/2
+                no_overlap= True
                 for idx_ob, sublist in enumerate(self.Ob):
                     for old_ob_pos in sublist:
                         dist_obs = np.linalg.norm(cand_pos - old_ob_pos)
-                        exist_rad = self.Ob_size[idx_ob]/2
-                        if dist_obs < (candidate_radius + exist_rad):
-                            no_overlap = False
+                        exist_rad= self.Ob_size[idx_ob]/2
+                        if dist_obs<(candidate_radius+exist_rad):
+                            no_overlap=False
                             break
                     if not no_overlap:
                         break
-
                 if not no_overlap:
                     continue
 
-                too_close_to_exit = False
+                too_close_to_exit=False
                 for ex_pos in self.Exit:
-                    if np.linalg.norm(cand_pos - ex_pos) < 1.0:
-                        too_close_to_exit = True
+                    if np.linalg.norm(cand_pos - ex_pos)<1.0:
+                        too_close_to_exit= True
                         break
                 if too_close_to_exit:
                     continue
 
                 self.Ob.append([cand_pos])
                 self.Ob_size.append(default_ob_size)
-                placed_ob = True
+                placed_ob= True
 
     def insert_particle(self, particle):
-        index = (particle.position - self.L[:, 0])/self.d_cells
-        if (index < 0).any() or (index >= self.n_cells).any():
+        index = (particle.position - self.L[:, 0])/ self.d_cells
+        if (index<0).any() or (index>=self.n_cells).any():
             print("Particle out of boundary!")
             return
         index = index.astype(int)
-        N = index[2]*(self.n_cells[0]*self.n_cells[1]) + index[1]*self.n_cells[0] + index[0]
+        N = index[2]*(self.n_cells[0]*self.n_cells[1]) + index[1]*self.n_cells[0]+ index[0]
         self.Cells[N].add(particle)
 
     def Zero_acc(self):
@@ -321,97 +325,97 @@ class Cell_Space:
     def region_confine(self):
         for c in self.Cells:
             for p in c.Particles:
-                # 1) Wall force
-                dis_abs = np.abs(p.position[:, np.newaxis] - self.L)
+                # wall force
+                dis_abs= np.abs(p.position[:,np.newaxis]-self.L)
                 f = np.where(
-                    dis_abs < agent_size,
-                    f_wall_lim * np.exp((agent_size - dis_abs) / 0.08) * dis_abs,
+                    dis_abs<agent_size,
+                    f_wall_lim*np.exp((agent_size-dis_abs)/0.08)* dis_abs,
                     0.0
                 )
-                f[:, 1] = -f[:, 1]
+                f[:,1] = -f[:,1]
                 f_net = f.sum(axis=1)
-                p.acc += f_net / p.mass
+                p.acc+= f_net/p.mass
 
-                # 2) Obstacles
+                # obstacles
                 for idx_ob, sublist in enumerate(self.Ob):
                     for obst_pos in sublist:
-                        dr = p.position - obst_pos
-                        dist = np.linalg.norm(dr)
-                        dist_eq = (agent_size + self.Ob_size[idx_ob]) / 2
-                        if dist < dist_eq:
-                            f_mag = f_collision_lim * np.exp((dist_eq - dist)/0.08)
-                            if dist > 1e-12:
-                                f_vec = f_mag * dr/dist
+                        dr= p.position-obst_pos
+                        dist= np.linalg.norm(dr)
+                        dist_eq= (agent_size+self.Ob_size[idx_ob])/2
+                        if dist<dist_eq:
+                            f_mag= f_collision_lim*np.exp((dist_eq-dist)/0.08)
+                            if dist>1e-12:
+                                f_vec= f_mag*dr/dist
                             else:
-                                f_vec = 0.0
-                            p.acc += f_vec / p.mass
+                                f_vec= 0.0
+                            p.acc+= f_vec/p.mass
 
-                # 3) Friction
-                friction = -p.mass/relaxation_time * p.velocity
-                p.acc += friction/p.mass
+                # friction
+                friction= -p.mass/relaxation_time * p.velocity
+                p.acc+= friction/p.mass
 
     def loop_cells(self):
         for c in self.Cells:
-            l = len(c.Particles)
+            l= len(c.Particles)
             for i in range(l):
                 for j in range(i+1, l):
-                    p1 = c.Particles[i]
-                    p2 = c.Particles[j]
-                    dr = p1.position - p2.position
-                    dist = np.linalg.norm(dr)
-                    if dist < agent_size:
-                        f_mag = f_collision_lim * np.exp((agent_size - dist)/0.08)
-                        if dist > 1e-12:
-                            f_vec = f_mag * dr/dist
+                    p1= c.Particles[i]
+                    p2= c.Particles[j]
+                    dr= p1.position- p2.position
+                    dist= np.linalg.norm(dr)
+                    if dist<agent_size:
+                        f_mag= f_collision_lim* np.exp((agent_size-dist)/0.08)
+                        if dist>1e-12:
+                            f_vec= f_mag* dr/dist
                         else:
-                            f_vec = 0.0
-                        p1.acc += f_vec/p1.mass
-                        p2.acc -= f_vec/p2.mass
+                            f_vec=0.0
+                        p1.acc+= f_vec/p1.mass
+                        p2.acc-= f_vec/p2.mass
 
     def loop_neighbors(self):
         for c in self.Cells:
             for n in c.Neighbors:
                 for p1 in c.Particles:
                     for p2 in self.Cells[n].Particles:
-                        dr = p1.position - p2.position
-                        dist = np.linalg.norm(dr)
-                        if dist < agent_size:
-                            f_mag = f_collision_lim * np.exp((agent_size - dist)/0.08)
-                            if dist > 1e-12:
-                                f_vec = f_mag * dr/dist
+                        dr= p1.position- p2.position
+                        dist= np.linalg.norm(dr)
+                        if dist<agent_size:
+                            f_mag= f_collision_lim* np.exp((agent_size-dist)/0.08)
+                            if dist>1e-12:
+                                f_vec= f_mag* dr/dist
                             else:
-                                f_vec = 0.0
-                            p1.acc += f_vec/p1.mass
-                            p2.acc -= f_vec/p2.mass
+                                f_vec= 0.0
+                            p1.acc+= f_vec/p1.mass
+                            p2.acc-= f_vec/p2.mass
 
     def Integration(self, stage):
-        self.T = 0.0
+        self.T=0.0
         for c in self.Cells:
             for p in c.Particles:
                 p.leapfrog(dt=self.dt, stage=stage)
-                self.T += 0.5 * p.mass * np.sum(p.velocity**2)
-        self.T /= self.Number
+                self.T+= 0.5*p.mass* np.sum(p.velocity**2)
+        self.T/= self.Number
 
     def move_particles(self):
         for c in self.Cells:
-            i = 0
-            while i < len(c.Particles):
-                p = c.Particles[i]
-                position = p.position
-                inside = (position >= c.L[:, 0]) & (position < c.L[:, 1])
+            i=0
+            while i< len(c.Particles):
+                p= c.Particles[i]
+                position= p.position
+                inside= (position>= c.L[:,0]) & (position< c.L[:,1])
                 if inside.all():
-                    i += 1
+                    i+=1
                 else:
-                    popped = c.Particles.pop(i)
+                    popped= c.Particles.pop(i)
                     self.insert_particle(popped)
 
     def reset(self):
         """
         Clear old particles, randomize exits/obstacles, re-initialize everything.
         Returns a 3D array: shape (3, rows, cols).
-          channel 0 => obstacles
-          channel 1 => exits
-          channel 2 => agent (single 1 at agent cell)
+        channel 0 => obstacles
+        channel 1 => exits
+        channel 2 => agent
         """
         for cell in self.Cells:
             cell.Particles.clear()
@@ -427,215 +431,230 @@ class Cell_Space:
         Return shape => (3, rows, cols)
         channel 0 => obstacles
         channel 1 => exits
-        channel 2 => agent (1 at the agent's cell)
+        channel 2 => agent
         """
-        # make empty
-        image = np.zeros((3, self.rows, self.cols), dtype=np.float32)
+        image= np.zeros((3,self.rows,self.cols), dtype=np.float32)
 
-        # mark obstacles => channel 0
+        # obstacles => channel 0
         for idx_ob, sublist in enumerate(self.Ob):
             for obst_pos in sublist:
-                row, col = self.world2grid(obst_pos[0], obst_pos[1])
-                if 0 <= row < self.rows and 0 <= col < self.cols:
-                    image[0, row, col] = 1.0
+                row,col= self.world2grid(obst_pos[0], obst_pos[1])
+                if 0<=row< self.rows and 0<= col< self.cols:
+                    image[0,row,col]=1.0
 
-        # mark exits => channel 1
+        # exits => channel 1
         for epos in self.Exit:
-            row, col = self.world2grid(epos[0], epos[1])
-            if 0 <= row < self.rows and 0 <= col < self.cols:
-                image[1, row, col] = 1.0
+            row,col= self.world2grid(epos[0], epos[1])
+            if 0<=row< self.rows and 0<=col< self.cols:
+                image[1,row,col]=1.0
 
-        # mark agent => channel 2
-        ax, ay, _ = self.agent.position
-        row, col = self.world2grid(ax, ay)
-        if 0 <= row < self.rows and 0 <= col < self.cols:
-            image[2, row, col] = 1.0
+        # agent => channel 2
+        ax, ay, _= self.agent.position
+        row,col= self.world2grid(ax,ay)
+        if 0<=row< self.rows and 0<=col< self.cols:
+            image[2,row,col]=1.0
 
         return image
 
     def world2grid(self, x, y):
-        """
-        Convert a continuous (x,y) in [xmin,xmax], [ymin,ymax] => integer (row,col).
-        We'll define row growing in +y direction, col in +x direction, each cell= agent_size.
-        """
-        xmin, xmax = self.L[0]
-        ymin, ymax = self.L[1]
-        row = int((y - ymin) / agent_size)
-        col = int((x - xmin) / agent_size)
-        return (row, col)
+        xmin, xmax= self.L[0]
+        ymin, ymax= self.L[1]
+        row = int((y - ymin)/agent_size)
+        col = int((x - xmin)/agent_size)
+        return row,col
 
     def step(self, action):
-        done = False
-        r = self.reward
+        """
+        - apply action => update
+        - if agent collides with obstacle => reward= -10, done= True
+        - if agent near exit => near_end_reward
+        - if agent reaches exit => end_reward, done= True
+        - else => default= -0.1
+        """
+        done= False
+        r= self.reward  # default
 
         self.Zero_acc()
         self.region_confine()
         self.loop_cells()
         self.loop_neighbors()
 
-        self.agent.acc += (1/relaxation_time) * desire_velocity * self.action[action]
+        self.agent.acc+= (1/relaxation_time)* desire_velocity* self.action[action]
 
         self.Integration(1)
         self.Integration(0)
         self.move_particles()
 
-        # check exit
-        agent_pos = self.agent.position
-        for epos in self.Exit:
-            dist = np.linalg.norm(agent_pos - epos)
-            if dist < dis_lim:
-                done = True
-                r = self.end_reward
-                break
-            elif dist < 2 * dis_lim:
-                r = self.near_end_reward
+        # check collision with obstacle => e.g. if the distance < agent_size => done
+        agent_pos= self.agent.position
+        for idx_ob, sublist in enumerate(self.Ob):
+            for obst_pos in sublist:
+                dist= np.linalg.norm(agent_pos- obst_pos)
+                # if dist < agent_size => collision => end
+                if dist< agent_size:
+                    done= True
+                    r= -10  # collision penalty
+                    break
+            if done:
                 break
 
-        next_state = self.get_state()
+        if not done:
+            # check exit
+            for epos in self.Exit:
+                dist= np.linalg.norm(agent_pos-epos)
+                if dist< dis_lim:
+                    done= True
+                    r= end_reward
+                    break
+                elif dist< 2*dis_lim:
+                    r= near_end_reward
+                    # no break => if multiple exits, but typically 1-3
+                    # but we don't end, just apply near_end_reward
+
+        next_state= self.get_state()
         return next_state, r, done
 
     def choose_random_action(self):
         return np.random.choice(len(self.action))
 
     def save_output(self, file):
-        N_obs_total = sum(len(ob_sublist) for ob_sublist in self.Ob)
-        with open(file, 'w+') as f:
-            HX = self.L[0, 1] - self.L[0, 0]
-            HY = self.L[1, 1] - self.L[1, 0]
-            HZ = self.L[2, 1] - self.L[2, 0]
+        N_obs_total= sum(len(ob_sublist) for ob_sublist in self.Ob)
+        with open(file,'w+') as f:
+            HX= self.L[0,1]- self.L[0,0]
+            HY= self.L[1,1]- self.L[1,0]
+            HZ= self.L[2,1]- self.L[2,0]
 
-            f.write(f"Number of particles = {self.Number + len(self.Exit) + N_obs_total}\n")
+            f.write(f"Number of particles = {self.Number + len(self.Exit)+ N_obs_total}\n")
             f.write(f"""A = 1.0 Angstrom (basic length-scale)
-H0(1,1) = {HX} A
-H0(1,2) = 0 A
-H0(1,3) = 0 A
-H0(2,1) = 0 A
-H0(2,2) = {HY} A
-H0(2,3) = 0 A
-H0(3,1) = 0 A
-H0(3,2) = 0 A
-H0(3,3) = {HZ} A
-entry_count = 7
-auxiliary[0] = ID [reduced unit]
+H0(1,1)= {HX} A
+H0(1,2)= 0 A
+H0(1,3)= 0 A
+H0(2,1)= 0 A
+H0(2,2)= {HY} A
+H0(2,3)= 0 A
+H0(3,1)= 0 A
+H0(3,2)= 0 A
+H0(3,3)= {HZ} A
+entry_count=7
+auxiliary[0]=ID [reduced unit]
 """)
 
             f.write("10.000000\nAt\n")
 
             # Exits
             for epos in self.Exit:
-                ex, ey, ez = self.Normalization(epos)
+                ex, ey, ez= self.Normalization(epos)
                 f.write(f"{ex} {ey} {ez} 0 0 0 -1\n")
 
             # Obstacles
             for idx_ob, sublist in enumerate(self.Ob):
-                if idx_ob == 0:
+                if idx_ob==0:
                     f.write("1.000000\nC\n")
-                elif idx_ob == 1:
+                elif idx_ob==1:
                     f.write("1.000000\nSi\n")
                 else:
                     f.write("1.000000\nC\n")
-
                 for opos in sublist:
-                    ox, oy, oz = self.Normalization(opos)
+                    ox, oy, oz= self.Normalization(opos)
                     f.write(f"{ox} {oy} {oz} 0 0 0 -1\n")
 
-            # Agent(s)
-            if self.Number > 0:
+            # Agent
+            if self.Number>0:
                 f.write("1.000000\nBr\n")
                 for c_ in self.Cells:
                     for p in c_.Particles:
-                        x, y, z = self.Normalization(p.position)
+                        x,y,z= self.Normalization(p.position)
                         f.write(f"{x} {y} {z} {p.velocity[0]} {p.velocity[1]} {p.velocity[2]} {p.ID}\n")
 
     def Normalization(self, position):
-        return (position - self.L[:, 0])/(self.L[:, 1] - self.L[:, 0])
+        return (position- self.L[:,0])/(self.L[:,1]- self.L[:,0])
 
     def Normalization_XY(self, position_2d):
-        return (position_2d - self.L[:2, 0])/(self.L[:2, 1] - self.L[:2, 0]) - offset
+        return (position_2d - self.L[:2,0])/(self.L[:2,1]- self.L[:2,0]) - offset
 
     def step_optimal_single_particle(self):
         """
-        Single-particle scenario, ignoring the multi-channel state in the final return:
-        For demonstration, we could adapt it to produce the same shape (3, rows, cols).
-        But let's keep it as is or remove it if you don't need it.
+        Single-particle scenario
+        If collision => done
+        If exit => done
+        else => ...
         """
-        done = False
+        done= False
 
-        if self.Number == 0:
-            done = True
-            next_state = self.get_state()
-            return next_state, self.end_reward, done
+        if self.Number==0:
+            done=True
+            next_state= self.get_state()
+            return next_state, end_reward, done
 
         self.Zero_acc()
         self.region_confine()
         self.loop_cells()
         self.loop_neighbors()
 
-        p = self.agent
-        dr_min = float('inf')
-        dr_unit = np.zeros(3)
+        p= self.agent
+        dr_min= float('inf')
+        dr_unit= np.zeros(3)
         for e in self.Exit:
-            dr_tmp = np.linalg.norm(e - p.position)
-            if dr_tmp < dr_min:
-                dr_min = dr_tmp
-                if dr_tmp > 1e-12:
-                    dr_unit = (e - p.position)/dr_tmp
+            dr_tmp= np.linalg.norm(e-p.position)
+            if dr_tmp< dr_min:
+                dr_min= dr_tmp
+                if dr_tmp>1e-12:
+                    dr_unit= (e-p.position)/dr_tmp
                 else:
-                    dr_unit[:] = 0.0
+                    dr_unit[:]= 0.0
 
-        costheta_best = -np.inf
-        best_action = None
+        costheta_best= -np.inf
+        best_action= None
         for act_vec in self.action:
-            costheta_tmp = np.dot(act_vec, dr_unit)
-            if costheta_tmp > costheta_best:
-                costheta_best = costheta_tmp
-                best_action = act_vec
+            costheta_tmp= np.dot(act_vec, dr_unit)
+            if costheta_tmp> costheta_best:
+                costheta_best= costheta_tmp
+                best_action= act_vec
 
-        p.acc += (1/relaxation_time) * desire_velocity * best_action
-
+        p.acc+= (1/relaxation_time)* desire_velocity* best_action
         self.Integration(1)
         self.Integration(0)
         self.move_particles()
 
-        in_exit = False
+        # check collision
+        for idx_ob, sublist in enumerate(self.Ob):
+            for obst_pos in sublist:
+                dist= np.linalg.norm(p.position- obst_pos)
+                if dist< agent_size:
+                    done= True
+                    r= -10
+                    next_state= self.get_state()
+                    return next_state, r, done
+
+        # check exit
+        in_exit= False
         for epos in self.Exit:
-            dist = np.linalg.norm(p.position - epos)
-            if dist < (agent_size + door_size)/2:
-                self.Number -= 1
-                in_exit = True
+            dist= np.linalg.norm(p.position- epos)
+            if dist< (agent_size+door_size)/2:
+                self.Number-=1
+                in_exit= True
                 break
 
         if in_exit:
-            done = True
-            reward_out = self.end_reward
+            done= True
+            reward_out= end_reward
         else:
-            reward_out = self.reward
+            reward_out= reward
 
-        next_state = self.get_state()
+        next_state= self.get_state()
         return next_state, reward_out, done
 
 
-if __name__ == '__main__':
-    # Example usage / simple test
-    env = Cell_Space(
-        xmin=0, xmax=20,
-        ymin=0, ymax=20,
-        zmin=0, zmax=2,
-        dt=0.1,
-        Number=1,
-        numExits=2,
-        numObs=3
-    )
-    initial_state = env.reset()
-    print("Initial State shape:", initial_state.shape)  # Should be (3, rows, cols)
-    done = False
-    step_count = 0
-    while not done and step_count < 50:
-        action = env.choose_random_action()
-        next_state, reward, done = env.step(action)
-        print(f"Step {step_count} -> Action:{action}, Reward:{reward}, Done:{done}, Next_state.shape:{next_state.shape}")
-        step_count += 1
-
-    if not os.path.isdir("./test_cfg"):
-        os.mkdir("./test_cfg")
-    env.save_output("./test_cfg/s.final")
+if __name__=="__main__":
+    # simple test
+    env= Cell_Space(xmin=0, xmax=20,ymin=0,ymax=20,zmin=0,zmax=2, dt=0.1, Number=1)
+    s= env.reset()
+    print("Initial shape:", s.shape, "Exits:", env.numExits,"Obs:", env.numObs)
+    done= False
+    steps=0
+    while not done and steps<50:
+        a= env.choose_random_action()
+        ns, r, done= env.step(a)
+        steps+=1
+        print(f"step:{steps}, action:{a}, reward:{r}, done:{done}, next_state.shape:{ns.shape}")
+    env.save_output("./test_cfg/occgrid.s.final")

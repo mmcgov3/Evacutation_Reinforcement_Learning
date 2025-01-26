@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 from Continuum_Cellspace6_OccupancyGrid import Cell_Space
 
 # Set random seeds for reproducibility
-np.random.seed(43)
-torch.manual_seed(43)
+np.random.seed(52)
+torch.manual_seed(52)
 
 ########################
 # Customizable parameters

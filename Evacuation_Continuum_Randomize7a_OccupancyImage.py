@@ -8,9 +8,10 @@ from collections import deque
 import matplotlib.pyplot as plt
 
 # ----------------------------------------------------------------------
-# 1) Import your environment returning shape=(3, rows, cols) for the state
+# 1) Import your new environment returning shape=(3, rows, cols)
+#    with random 1-3 exits, 0-3 obstacles, collision => -10 reward
 # ----------------------------------------------------------------------
-from Continuum_Cellspace7_OccupancyImage import Cell_Space  # must produce (3, rows, cols)
+from Continuum_Cellspace7_OccupancyImage import Cell_Space  # <--- NEW environment
 
 # Set random seeds for reproducibility
 np.random.seed(43)
@@ -30,12 +31,12 @@ if not os.path.isdir(output_dir):
 if not os.path.isdir(model_saved_path):
     os.mkdir(model_saved_path)
 
-output_dir = os.path.join(output_dir, 'OccupancyGrid_CNN_DQN_1Exit_0Ob')
-model_saved_path = os.path.join(model_saved_path, 'OccupancyGrid_CNN_DQN_1Exit_0Ob')
+output_dir = os.path.join(output_dir, 'OccupancyGrid_CNN_DQN_RandomExitsObs')
+model_saved_path = os.path.join(model_saved_path, 'OccupancyGrid_CNN_DQN_RandomExitsObs')
 
 # Hyperparameters
 train_episodes = 20000
-max_steps = 2000
+max_steps = 500
 gamma = 0.99
 
 explore_start = 1.0
@@ -43,7 +44,7 @@ explore_stop = 0.1
 decay_percentage = 0.7
 decay_rate = 4 / decay_percentage
 
-learning_rate = 5e54
+learning_rate = 1e-4
 memory_size = 10000
 batch_size = 128
 pretrain_length = batch_size
@@ -73,14 +74,13 @@ class CNN_DQN(nn.Module):
         self.action_size = action_size
 
         # Convolution layers
-        # Adjust kernel_size, stride, out_channels as needed
         self.conv1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=2, padding=1)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
 
         # We'll compute the shape after these 3 convs
         def conv_out_size(in_size, stride=2, kernel_size=3, padding=1):
-            return (in_size + 2*padding - (kernel_size-1)-1)//stride +1
+            return (in_size + 2*padding - (kernel_size-1) - 1)//stride + 1
 
         c1_h = conv_out_size(rows)
         c1_w = conv_out_size(cols)
@@ -195,6 +195,7 @@ def moving_average(data, window_size=50):
     """
     ma = []
     cum_sum = 0.0
+    from collections import deque
     q = deque()
     for val in data:
         q.append(val)
@@ -208,15 +209,14 @@ def moving_average(data, window_size=50):
 # Main Training Loop
 #############################################
 if __name__ == '__main__':
-    # 1) Create environment that returns shape=(3, rows, cols)
+    # 1) Create environment that picks random [1..3] exits, [0..3] obstacles each reset
+    #    and shape => (3, rows, cols)
     env = Cell_Space(
         xmin=0, xmax=10,
         ymin=0, ymax=10,
         zmin=0, zmax=2,
         dt=0.1,
-        Number=Number_Agent,
-        numExits=1,
-        numObs=0
+        Number=Number_Agent
     )
 
     # Suppose shape => (3,20,20). We'll define the CNN DQN with these dims
@@ -226,7 +226,6 @@ if __name__ == '__main__':
 
     optimizer = torch.optim.Adam(mainQN.parameters(), lr=learning_rate)
     loss_fn = nn.SmoothL1Loss()
-    from collections import deque
     memory = Memory(max_size=memory_size)
 
     # Ensure directories exist
@@ -307,7 +306,7 @@ if __name__ == '__main__':
                     max_targetQ[dones_t] = 0.0
                     target_values = rewards_t + gamma * max_targetQ
 
-                currentQ_values = mainQN(states_batch)  # => (B, action_size)
+                currentQ_values = mainQN(states_batch)
                 currentQ = currentQ_values.gather(1, actions_t.unsqueeze(1)).squeeze(1)
 
                 loss = loss_fn(currentQ, target_values)
