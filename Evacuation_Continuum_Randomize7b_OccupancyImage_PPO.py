@@ -27,7 +27,7 @@ import math
 import time
 
 # Import your environment: shape => (3,rows,cols), 8 discrete actions
-from Cell_Space_Env_Image import Cell_Space
+from Continuum_Cellspace7_OccupancyImage import Cell_Space
 
 # --------------------------
 # 1) PPO Hyperparameters
