@@ -493,7 +493,7 @@ class Cell_Space:
                 dist= np.linalg.norm(agent_pos- obst_pos)
                 # if dist < agent_size => collision => end
                 if dist< agent_size:
-                    done= True
+                    #done= True
                     r= self.collision_penalty  # collision penalty
                     break
             if done:
