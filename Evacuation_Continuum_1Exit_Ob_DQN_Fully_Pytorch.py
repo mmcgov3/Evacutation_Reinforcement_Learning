@@ -275,7 +275,8 @@ if __name__ == '__main__':
         episode_rewards.append(total_reward)
 
         if len(memory.buffer) == memory_size:
-            print(f"Episode: {ep}, Loss: {avg_loss:.4f}, Reward: {total_reward:.2f}, Steps: {t}")
+            print(f"Episode: {ep}, Steps: {t}, Epsilon: {epsilon:.3f}, "
+                  f"Reward: {total_reward:.2f}, Loss: {avg_loss:.7f}")
 
         # Save model periodically
         if ep % save_step == 0:
