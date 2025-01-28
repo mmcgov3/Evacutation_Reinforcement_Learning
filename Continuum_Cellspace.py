@@ -9,7 +9,7 @@ f_collision_lim = 100.0                 #set the magnitude of the particle colli
 door_size = 1.0                       #size of door
 agent_size = 0.5                        #size of agent (particle)
 reward = -0.1
-end_reward = 0
+end_reward = 10
 
 offset = np.array([0.5, 0.5])           #offset after scale to [0, 1]
 dis_lim = (agent_size + door_size)/2    #set the distance from the exit which the agent is regarded as left
@@ -17,7 +17,7 @@ action_force = 1.0                      #unit action force
 desire_velocity = 2.0                   #desire velocity
 relaxation_time = 0.5                   #relaxation_time
 delta_t = 0.1                           #time difference of simulation
-cfg_save_step = 5                       #time steps interval for saving Cfg file
+cfg_save_step = 1                       #time steps interval for saving Cfg file
 
 ######Initialize Exit positions range [0, 1]
 Exit = []  ###No exit
@@ -549,6 +549,7 @@ auxiliary[0] = ID [reduced unit]
                 done = True
                 reward = self.end_reward
                 break
+            
         
         return next_state, reward, done
     

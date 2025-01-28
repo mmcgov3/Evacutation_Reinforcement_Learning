@@ -4,7 +4,7 @@ Your environment (Cell_Space) must return states of shape (3, rows, cols),
 with discrete 8 actions. We'll do 4 parallel envs, gather rollouts of length=1024
 (so 4096 steps total each iteration), then run 10 epochs of PPO updates.
 
-Hyperparameters set per your instructions:
+Hyperparameters set:
 - total_timesteps = 1e7
 - gamma=0.99, gae_lambda=0.95
 - clip_range=0.2
