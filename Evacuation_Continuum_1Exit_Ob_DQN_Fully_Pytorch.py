@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import deque
+import matplotlib.pyplot as plt  # For plotting
 from Continuum_Cellspace import *  # Assumed to be unchanged and compatible
 
 # Set random seeds for reproducibility
@@ -12,10 +13,7 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 Number_Agent = 1
-Exit.append( np.array([0.5, 1.0, 0.5]) )   ##Add Up exit
-#Exit.append( np.array([0.5, 0, 0.5]) )     ##Add Down Exit
-#Exit.append( np.array([0, 0.5, 0.5]) )     ##Add Left exit
-#Exit.append( np.array([1.0, 0.5, 0.5]) )   ##Add Right Exit
+Exit.append(np.array([0.5, 1.0, 0.5]))  # Add exit on the top wall
 
 Ob1 = []
 Ob1.append(np.array([0.5, 0.7, 0.5]))
@@ -38,8 +36,8 @@ name_targetQN = 'target_qn_1exit_ob'
 
 # Hyperparameters and configuration
 train_episodes = 10000      # max number of episodes
-max_steps = 1500           # max steps in an episode
-gamma = 0.999               # future reward discount
+max_steps = 1500            # max steps in an episode
+gamma = 0.99                # future reward discount
 
 explore_start = 1.0         # initial exploration probability
 explore_stop = 0.1          # minimum exploration probability
@@ -47,16 +45,15 @@ decay_percentage = 0.5
 decay_rate = 4 / decay_percentage  # exploration decay rate
 
 learning_rate = 1e-4        # Q-network learning rate
-memory_size = 1000          # replay memory size
+memory_size = 10000         # replay memory size
 batch_size = 50             # mini-batch size
-pretrain_length = batch_size
 
 update_target_every = 1     # update target network frequency (in episodes)
 tau = 0.1                   # soft update factor
 save_step = 1000            # steps to save model
 train_step = 1              # training every this many steps
-Cfg_save_freq = 100         # frequency to save cfg (every #episodes)
-#cfg_save_step = 1000         # steps to save env state within an episode
+Cfg_save_freq = 1000        # frequency to save cfg (every #episodes)
+#cfg_save_step = 1000       # steps to save env state within an episode
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -110,7 +107,6 @@ def load_checkpoint_if_exists(model_saved_path, mainQN, targetQN, optimizer):
     checkpoint_files = [f for f in os.listdir(model_saved_path) if f.endswith('.pth')]
     if len(checkpoint_files) > 0:
         # For simplicity, pick the first or latest checkpoint
-        # Assuming there's a single model checkpoint or picking the latest
         checkpoint_files.sort()
         latest_ckpt = os.path.join(model_saved_path, checkpoint_files[-1])
         checkpoint = torch.load(latest_ckpt, map_location=device)
@@ -134,12 +130,30 @@ def load_checkpoint_if_exists(model_saved_path, mainQN, targetQN, optimizer):
         print("Could not find old network weights. Run with initialization")
         return 1
 
+def rolling_window_average(values, window_size=250):
+    """
+    Returns a list of the same length as 'values',
+    where the ith element is the average of the last 'window_size' values up to i,
+    or fewer if i < window_size.
+    """
+    result = []
+    cumsum = np.cumsum(np.insert(values, 0, 0))
+    for i in range(len(values)):
+        start_index = max(0, i - window_size + 1)
+        window_sum = cumsum[i + 1] - cumsum[start_index]
+        window_len = i - start_index + 1
+        result.append(window_sum / window_len)
+    return result
+
 if __name__ == '__main__':
+    # Build environment
     env = Cell_Space(0, 10, 0, 10, 0, 2, rcut=1.5, dt=delta_t, Number=Number_Agent)
     state = env.reset()
 
+    # Replay buffer
     memory = Memory(max_size=memory_size)
 
+    # Q-networks
     mainQN = DQN().to(device)
     targetQN = DQN().to(device)
     hard_update(targetQN, mainQN)
@@ -153,12 +167,22 @@ if __name__ == '__main__':
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
 
+    # Load checkpoint if exists
     start_episode = load_checkpoint_if_exists(model_saved_path, mainQN, targetQN, optimizer)
 
     step = 0
-    for ep in range(start_episode, train_episodes+1):
+
+    # To store stats per episode
+    episode_losses = []   # will hold average loss for each episode
+    episode_rewards = []  # will hold total reward for each episode
+
+    for ep in range(start_episode, train_episodes + 1):
         total_reward = 0
         t = 0
+
+        # Track losses within the episode
+        episode_loss_sum = 0.0
+        episode_loss_count = 0
 
         # For saving configuration snapshots
         if ep % Cfg_save_freq == 0:
@@ -169,9 +193,12 @@ if __name__ == '__main__':
 
         state = env.reset()
         done = False
+
         while t < max_steps:
+            # Epsilon decay
             epsilon = explore_stop + (explore_start - explore_stop) * np.exp(-decay_rate * ep / train_episodes)
 
+            # Build feed_state for network
             feed_state = np.array(state)
             feed_state[:2] = env.Normalization_XY(feed_state[:2])
             feed_state_tensor = torch.FloatTensor(feed_state).unsqueeze(0).to(device)
@@ -185,6 +212,7 @@ if __name__ == '__main__':
                 action_list = np.where(Qs == np.max(Qs))[0]
                 action = np.random.choice(action_list)
 
+            # Step in environment
             next_state, reward, done = env.step(action)
             total_reward += reward
             step += 1
@@ -193,6 +221,7 @@ if __name__ == '__main__':
             feed_next_state = np.array(next_state)
             feed_next_state[:2] = env.Normalization_XY(feed_next_state[:2])
 
+            # Store transition
             memory.add((feed_state, action, reward, feed_next_state, done))
 
             if done:
@@ -201,8 +230,9 @@ if __name__ == '__main__':
                 break
             else:
                 state = next_state
-                if ep % Cfg_save_freq == 0 and t % cfg_save_step == 0:
-                    env.save_output(pathdir + '/s.' + str(t))
+                # Optionally save environment state within episode
+                # if ep % Cfg_save_freq == 0 and t % cfg_save_step == 0:
+                #     env.save_output(pathdir + '/s.' + str(t))
 
             # Training step
             if len(memory.buffer) == memory_size and t % train_step == 0:
@@ -232,8 +262,20 @@ if __name__ == '__main__':
                 loss.backward()
                 optimizer.step()
 
+                episode_loss_sum += loss.item()
+                episode_loss_count += 1
+
+        # If we had any training steps within this episode, compute the average loss
+        if episode_loss_count > 0:
+            avg_loss = episode_loss_sum / episode_loss_count
+        else:
+            avg_loss = 0.0
+
+        episode_losses.append(avg_loss)
+        episode_rewards.append(total_reward)
+
         if len(memory.buffer) == memory_size:
-            print(f"Episode: {ep}, Loss: {loss.item()}, steps per episode: {t}")
+            print(f"Episode: {ep}, Loss: {avg_loss:.4f}, Reward: {total_reward:.2f}, Steps: {t}")
 
         # Save model periodically
         if ep % save_step == 0:
@@ -249,7 +291,7 @@ if __name__ == '__main__':
         if ep % update_target_every == 0:
             soft_update(targetQN, mainQN, tau)
 
-    # Final save
+    # Final save of the model
     save_path = os.path.join(model_saved_path, f"Evacuation_Continuum_model_ep{train_episodes}.pth")
     torch.save({
         'episode': train_episodes,
@@ -257,3 +299,35 @@ if __name__ == '__main__':
         'targetQN_state_dict': targetQN.state_dict(),
         'optimizer_state_dict': optimizer.state_dict()
     }, save_path)
+
+    # ========================
+    # Plot & save the results
+    # ========================
+
+    # Rolling averages over the last 250 episodes
+    ma_losses = rolling_window_average(episode_losses, window_size=250)
+    ma_rewards = rolling_window_average(episode_rewards, window_size=250)
+
+    # Plot 1: Loss per episode
+    plt.figure()
+    plt.plot(episode_losses, label='Loss per Episode')
+    plt.plot(ma_losses, label='Rolling Avg (250) Loss', linewidth=2)
+    plt.xlabel('Episode')
+    plt.ylabel('Loss')
+    plt.title('DQN Loss per Episode')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'loss_plot.png'))
+    plt.close()
+
+    # Plot 2: Reward per episode
+    plt.figure()
+    plt.plot(episode_rewards, label='Reward per Episode')
+    plt.plot(ma_rewards, label='Rolling Avg (250) Reward', linewidth=2)
+    plt.xlabel('Episode')
+    plt.ylabel('Reward')
+    plt.title('DQN Reward per Episode')
+    plt.legend()
+    plt.savefig(os.path.join(output_dir, 'reward_plot.png'))
+    plt.close()
+
+    print("Training complete. Plots saved in:", output_dir)

@@ -8,10 +8,10 @@ from collections import deque
 import matplotlib.pyplot as plt
 
 # ----------------------------------------------------------------------
-# 1) Import your new environment returning shape=(3, rows, cols)
+# 1) Import new environment returning shape=(3, rows, cols)
 #    with random 1-3 exits, 0-3 obstacles, collision => -10 reward
 # ----------------------------------------------------------------------
-from Continuum_Cellspace7_OccupancyImage import Cell_Space  # <--- NEW environment
+from Continuum_Cellspace7_OccupancyImage import Cell_Space  # New environment
 
 # Set random seeds for reproducibility
 np.random.seed(43)
@@ -78,7 +78,7 @@ class CNN_DQN(nn.Module):
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1)
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
 
-        # We'll compute the shape after these 3 convs
+        # Compute the shape after these 3 convs
         def conv_out_size(in_size, stride=2, kernel_size=3, padding=1):
             return (in_size + 2*padding - (kernel_size-1) - 1)//stride + 1
 
@@ -105,7 +105,7 @@ class CNN_DQN(nn.Module):
     def forward(self, batch_states):
         """
         batch_states => either a single state (3, rows, cols) or a list of them
-        We'll convert to shape => (B, 3, rows, cols) => pass through CNN => FC => Q-values
+        Convert to shape => (B, 3, rows, cols) => pass through CNN => FC => Q-values
         """
         if not isinstance(batch_states, list):
             batch_states = [batch_states]
@@ -188,7 +188,7 @@ def load_checkpoint_if_exists(model_saved_path, mainQN, targetQN, optimizer):
 #############################################
 # Utility: moving average
 #############################################
-def moving_average(data, window_size=50):
+def moving_average(data, window_size=500):
     """
     Compute a simple moving average of 'data' with 'window_size'.
     Return an array of same length with smoothed values.
