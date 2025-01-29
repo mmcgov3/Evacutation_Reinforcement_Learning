@@ -31,8 +31,8 @@ if not os.path.isdir(output_dir):
 if not os.path.isdir(model_saved_path):
     os.mkdir(model_saved_path)
 
-output_dir = os.path.join(output_dir, 'OccupancyGrid_CNN_DQN_RandomExitsObs')
-model_saved_path = os.path.join(model_saved_path, 'OccupancyGrid_CNN_DQN_RandomExitsObs')
+output_dir = os.path.join(output_dir, 'OccupancyGrid_CNN_DQN_RandomExitsObs_Desktop')
+model_saved_path = os.path.join(model_saved_path, 'OccupancyGrid_CNN_DQN_RandomExitsObs_Desktop')
 
 # Hyperparameters
 train_episodes = 20000
