@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt  # For plotting
 from Continuum_Cellspace import *  # Assumed to be unchanged and compatible
 
 # Set random seeds for reproducibility
-np.random.seed(42)
-torch.manual_seed(42)
+np.random.seed(43)
+torch.manual_seed(43)
 
 Number_Agent = 1
 Exit.append(np.array([0.5, 1.0, 0.5]))  # Add exit on the top wall
