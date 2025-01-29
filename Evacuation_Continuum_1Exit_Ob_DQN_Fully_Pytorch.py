@@ -46,13 +46,13 @@ decay_rate = 4 / decay_percentage  # exploration decay rate
 
 learning_rate = 1e-4        # Q-network learning rate
 memory_size = 10000         # replay memory size
-batch_size = 50             # mini-batch size
+batch_size = 64             # mini-batch size
 
 update_target_every = 1     # update target network frequency (in episodes)
 tau = 0.1                   # soft update factor
-save_step = 1000            # steps to save model
+save_step = 3000            # steps to save model
 train_step = 1              # training every this many steps
-Cfg_save_freq = 1000        # frequency to save cfg (every #episodes)
+Cfg_save_freq = 3000        # frequency to save cfg (every #episodes)
 cfg_save_step = 1           # steps to save env state within an episode
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -275,7 +275,8 @@ if __name__ == '__main__':
         episode_rewards.append(total_reward)
 
         if len(memory.buffer) == memory_size:
-            print(f"Episode: {ep}, Loss: {avg_loss:.4f}, Reward: {total_reward:.2f}, Steps: {t}")
+            print(f"Episode: {ep}, Steps: {t}, Epsilon: {epsilon:.3f}, "
+                  f"Reward: {total_reward:.2f}, Loss: {avg_loss:.7f}")
 
         # Save model periodically
         if ep % save_step == 0:
