@@ -46,13 +46,13 @@ decay_rate = 4 / decay_percentage  # exploration decay rate
 
 learning_rate = 1e-4        # Q-network learning rate
 memory_size = 10000         # replay memory size
-batch_size = 50             # mini-batch size
+batch_size = 64             # mini-batch size
 
 update_target_every = 1     # update target network frequency (in episodes)
 tau = 0.1                   # soft update factor
-save_step = 1000            # steps to save model
+save_step = 3000            # steps to save model
 train_step = 1              # training every this many steps
-Cfg_save_freq = 1000        # frequency to save cfg (every #episodes)
+Cfg_save_freq = 3000        # frequency to save cfg (every #episodes)
 cfg_save_step = 1           # steps to save env state within an episode
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -199,9 +199,9 @@ if __name__ == '__main__':
             epsilon = explore_stop + (explore_start - explore_stop) * np.exp(-decay_rate * ep / train_episodes)
 
             # Build feed_state for network
-            feed_state = np.array(state)
+            feed_state = np.array(state, dtype=np.float32)
             feed_state[:2] = env.Normalization_XY(feed_state[:2])
-            feed_state_tensor = torch.FloatTensor(feed_state).unsqueeze(0).to(device)
+            feed_state_tensor = torch.from_numpy(feed_state).unsqueeze(0).to(device)
 
             # Epsilon-greedy action selection
             if np.random.rand() < epsilon:
@@ -218,10 +218,10 @@ if __name__ == '__main__':
             step += 1
             t += 1
 
-            feed_next_state = np.array(next_state)
+            feed_next_state = np.array(next_state, dtype=np.float32)
             feed_next_state[:2] = env.Normalization_XY(feed_next_state[:2])
 
-            # Store transition
+            # Store transition in replay buffer
             memory.add((feed_state, action, reward, feed_next_state, done))
 
             if done:
@@ -237,11 +237,20 @@ if __name__ == '__main__':
             # Training step
             if len(memory.buffer) == memory_size and t % train_step == 0:
                 batch = memory.sample(batch_size)
-                states = torch.FloatTensor([each[0] for each in batch]).to(device)
-                actions = torch.LongTensor([each[1] for each in batch]).to(device)
-                rewards = torch.FloatTensor([each[2] for each in batch]).to(device)
-                next_states = torch.FloatTensor([each[3] for each in batch]).to(device)
-                finish = torch.BoolTensor([each[4] for each in batch]).to(device)
+                
+                # Instead of building each tensor from a list-of-lists
+                # we create a NumPy array first, then convert to a tensor.
+                b_states   = np.array([ex[0] for ex in batch], dtype=np.float32)
+                b_actions  = np.array([ex[1] for ex in batch], dtype=np.int64)
+                b_rewards  = np.array([ex[2] for ex in batch], dtype=np.float32)
+                b_next     = np.array([ex[3] for ex in batch], dtype=np.float32)
+                b_done     = np.array([ex[4] for ex in batch], dtype=np.bool_)
+
+                states      = torch.from_numpy(b_states).to(device)
+                actions     = torch.from_numpy(b_actions).to(device)
+                rewards     = torch.from_numpy(b_rewards).to(device)
+                next_states = torch.from_numpy(b_next).to(device)
+                finish      = torch.from_numpy(b_done).to(device)
 
                 # Compute target Q-values
                 with torch.no_grad():
@@ -275,7 +284,8 @@ if __name__ == '__main__':
         episode_rewards.append(total_reward)
 
         if len(memory.buffer) == memory_size:
-            print(f"Episode: {ep}, Loss: {avg_loss:.4f}, Reward: {total_reward:.2f}, Steps: {t}")
+            print(f"Episode: {ep}, Steps: {t}, Epsilon: {epsilon:.3f}, "
+                  f"Reward: {total_reward:.2f}, Loss: {avg_loss:.7f}")
 
         # Save model periodically
         if ep % save_step == 0:
