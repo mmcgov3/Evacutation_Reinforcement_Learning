@@ -53,7 +53,7 @@ tau = 0.1                   # soft update factor
 save_step = 1000            # steps to save model
 train_step = 1              # training every this many steps
 Cfg_save_freq = 1000        # frequency to save cfg (every #episodes)
-#cfg_save_step = 1000       # steps to save env state within an episode
+cfg_save_step = 1           # steps to save env state within an episode
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -230,9 +230,9 @@ if __name__ == '__main__':
                 break
             else:
                 state = next_state
-                # Optionally save environment state within episode
-                # if ep % Cfg_save_freq == 0 and t % cfg_save_step == 0:
-                #     env.save_output(pathdir + '/s.' + str(t))
+                
+                if ep % Cfg_save_freq == 0 and t % cfg_save_step == 0:
+                    env.save_output(pathdir + '/s.' + str(t))
 
             # Training step
             if len(memory.buffer) == memory_size and t % train_step == 0:
