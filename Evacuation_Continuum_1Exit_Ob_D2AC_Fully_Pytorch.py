@@ -40,42 +40,60 @@ if not os.path.isdir(MODEL_SAVED_PATH):
 #######################
 # Actor-Critic Network
 #######################
-class ActorCritic(nn.Module):
+# class ActorCritic(nn.Module):
+#     def __init__(self, state_size=4, action_size=8):
+#         super(ActorCritic, self).__init__()
+#         # A larger network than the CartPole example
+#         self.fc1 = nn.Linear(state_size, 128)
+#         self.fc2 = nn.Linear(128, 128)
+        
+#         # Actor head (8 discrete actions)
+#         self.actor = nn.Linear(128, action_size)
+        
+#         # Critic head (value function)
+#         self.critic = nn.Linear(128, 1)
+        
+#         for m in self.modules():
+#             if isinstance(m, nn.Linear):
+#                 nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
+#                 nn.init.constant_(m.bias, 0)
+
+#     def forward(self, x):
+#         """
+#         Returns (log_probs, value).
+#         - log_probs: log-probabilities of each action (8) [ shape: (8,) ]
+#         - value: scalar predicted value [ shape: (1,) ]
+#         """
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+        
+#         # Actor
+#         actor_logits = self.actor(x)
+#         log_probs = F.log_softmax(actor_logits, dim=-1)  # shape: (8,)
+
+#         # Critic
+#         value = self.critic(x)  # shape: (1,)
+
+#         return log_probs, value
+    
+class ActorCritic(nn.Module): #B
     def __init__(self, state_size=4, action_size=8):
         super(ActorCritic, self).__init__()
-        # A larger network than the CartPole example
-        self.fc1 = nn.Linear(state_size, 128)
-        self.fc2 = nn.Linear(128, 128)
+        self.l1 = nn.Linear(4,128)
+        self.l2 = nn.Linear(128,128)
+        self.actor_lin1 = nn.Linear(128,action_size)
         
-        # Actor head (8 discrete actions)
-        self.actor = nn.Linear(128, action_size)
-        
-        # Critic head (value function)
-        self.critic = nn.Linear(128, 1)
-        
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x):
-        """
-        Returns (log_probs, value).
-        - log_probs: log-probabilities of each action (8) [ shape: (8,) ]
-        - value: scalar predicted value [ shape: (1,) ]
-        """
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        
-        # Actor
-        actor_logits = self.actor(x)
-        log_probs = F.log_softmax(actor_logits, dim=-1)  # shape: (8,)
-
-        # Critic
-        value = self.critic(x)  # shape: (1,)
-
-        return log_probs, value
-
+        self.l3 = nn.Linear(128,128)
+        self.critic_lin1 = nn.Linear(128,1)
+    
+    def forward(self,x):
+        x = F.normalize(x,dim=0)
+        y = F.relu(self.l1(x))
+        y = F.relu(self.l2(y))
+        actor = F.log_softmax(self.actor_lin1(y),dim=0) #C
+        c = F.relu(self.l3(y.detach()))
+        critic = torch.tanh(self.critic_lin1(c)) #D
+        return actor, critic #E
 
 #######################
 # Rollout / Training
