@@ -35,6 +35,7 @@ name_mainQN = 'main_qn_1exit_ob'
 name_targetQN = 'target_qn_1exit_ob'
 
 # Hyperparameters and configuration
+GRID_SIZE = 10
 train_episodes = 10000      # max number of episodes
 max_steps = 1500            # max steps in an episode
 gamma = 0.99                # future reward discount
@@ -147,7 +148,7 @@ def rolling_window_average(values, window_size=250):
 
 if __name__ == '__main__':
     # Build environment
-    env = Cell_Space(0, 10, 0, 10, 0, 2, rcut=1.5, dt=delta_t, Number=Number_Agent)
+    env = Cell_Space(0, GRID_SIZE, 0, GRID_SIZE, 0, 2, rcut=1.5, dt=delta_t, Number=Number_Agent)
     state = env.reset()
 
     # Replay buffer
@@ -192,6 +193,37 @@ if __name__ == '__main__':
             env.save_output(pathdir + '/s.' + str(t))
 
         state = env.reset()
+        # After env.reset()
+        r = np.random.rand()
+        if r < 0.15:
+            # We want to force the agent into one of the 4 "corner" subregions
+            # in normalized [0..1] coordinates:
+            #   x in [0..0.25] or [0.75..1],  y in [0..0.25] or [0.75..1]
+            
+            # Pick x-range
+            if np.random.rand() < 0.5:
+                x_val = np.random.uniform(0.0, 0.25)   # left side
+            else:
+                x_val = np.random.uniform(0.75, 1.0)   # right side
+
+            # Pick y-range
+            if np.random.rand() < 0.5:
+                y_val = np.random.uniform(0.0, 0.25)   # bottom side
+            else:
+                y_val = np.random.uniform(0.75, 1.0)   # top side
+
+            # Now convert these normalized [0..1] coords to your environment domain [0..10]
+            agent_x = x_val * GRID_SIZE
+            agent_y = y_val * GRID_SIZE
+
+            # Override the agent’s position
+            env.agent.position[0] = agent_x
+            env.agent.position[1] = agent_y
+
+        # Then continue your normal steps
+        state = (env.agent.position[0], env.agent.position[1],
+                env.agent.velocity[0], env.agent.velocity[1])
+
         done = False
 
         while t < max_steps:

@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.multiprocessing as mp
 from collections import deque
 import matplotlib.pyplot as plt
-from Continuum_Cellspace import Cell_Space
+from Continuum_Cellspace import *
 
 #######################
 # Hyperparameters / Config
@@ -19,81 +19,56 @@ LEARNING_RATE = 1e-4
 ROLLING_WINDOW = 250 # for reward-plot smoothing
 
 # Multiprocessing parameters
-NUM_WORKERS = 2
-EPISODES_PER_WORKER = 50
+NUM_WORKERS = 4
+EPISODES_PER_WORKER = 2500
+
+# Hard cap on steps per episode
+MAX_EPISODE_STEPS = 2000
 
 # Periodic saving of model
-SAVE_STEP = 10    # Save the model every these many global episodes
+SAVE_STEP = 1000    # Save the model every these many global episodes
 
 # Periodic environment snapshot
-CFG_SAVE_FREQ = 10  # Take env snapshots every these many global episodes
+CFG_SAVE_FREQ = 1000  # Take env snapshots every these many global episodes
 CFG_SAVE_STEP = 1   # Also snapshot every N environment steps (within an episode)
 
-OUTPUT_DIR = './output_actor_critic'
-MODEL_SAVED_PATH = './model_actor_critic'
+output_dir = './output'
+model_saved_path = './model'
 
-if not os.path.isdir(OUTPUT_DIR):
-    os.mkdir(OUTPUT_DIR)
-if not os.path.isdir(MODEL_SAVED_PATH):
-    os.mkdir(MODEL_SAVED_PATH)
+if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+if not os.path.isdir(model_saved_path):
+    os.mkdir(model_saved_path)
+
+output_dir = os.path.join(output_dir, 'Continuum_1Exit_Ob_D2AC_Fully_Pytorch')
+model_saved_path = os.path.join(model_saved_path, 'Continuum_1Exit_Ob_D2AC_Fully_Pytorch')
+
+if not os.path.isdir(output_dir):
+    os.mkdir(output_dir)
+if not os.path.isdir(model_saved_path):
+    os.mkdir(model_saved_path)
 
 #######################
 # Actor-Critic Network
 #######################
-# class ActorCritic(nn.Module):
-#     def __init__(self, state_size=4, action_size=8):
-#         super(ActorCritic, self).__init__()
-#         # A larger network than the CartPole example
-#         self.fc1 = nn.Linear(state_size, 128)
-#         self.fc2 = nn.Linear(128, 128)
-        
-#         # Actor head (8 discrete actions)
-#         self.actor = nn.Linear(128, action_size)
-        
-#         # Critic head (value function)
-#         self.critic = nn.Linear(128, 1)
-        
-#         for m in self.modules():
-#             if isinstance(m, nn.Linear):
-#                 nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
-#                 nn.init.constant_(m.bias, 0)
-
-#     def forward(self, x):
-#         """
-#         Returns (log_probs, value).
-#         - log_probs: log-probabilities of each action (8) [ shape: (8,) ]
-#         - value: scalar predicted value [ shape: (1,) ]
-#         """
-#         x = F.relu(self.fc1(x))
-#         x = F.relu(self.fc2(x))
-        
-#         # Actor
-#         actor_logits = self.actor(x)
-#         log_probs = F.log_softmax(actor_logits, dim=-1)  # shape: (8,)
-
-#         # Critic
-#         value = self.critic(x)  # shape: (1,)
-
-#         return log_probs, value
-    
-class ActorCritic(nn.Module): #B
+class ActorCritic(nn.Module):
     def __init__(self, state_size=4, action_size=8):
         super(ActorCritic, self).__init__()
-        self.l1 = nn.Linear(4,128)
-        self.l2 = nn.Linear(128,128)
-        self.actor_lin1 = nn.Linear(128,action_size)
+        self.l1 = nn.Linear(state_size, 128)
+        self.l2 = nn.Linear(128, 128)
+        self.actor_lin1 = nn.Linear(128, action_size)
         
-        self.l3 = nn.Linear(128,128)
-        self.critic_lin1 = nn.Linear(128,1)
+        self.l3 = nn.Linear(128, 128)
+        self.critic_lin1 = nn.Linear(128, 1)
     
-    def forward(self,x):
-        x = F.normalize(x,dim=0)
+    def forward(self, x):
+        x = F.normalize(x, dim=0)
         y = F.relu(self.l1(x))
         y = F.relu(self.l2(y))
-        actor = F.log_softmax(self.actor_lin1(y),dim=0) #C
+        actor = F.log_softmax(self.actor_lin1(y), dim=0) 
         c = F.relu(self.l3(y.detach()))
-        critic = torch.tanh(self.critic_lin1(c)) #D
-        return actor, critic #E
+        critic = torch.tanh(self.critic_lin1(c))
+        return actor, critic
 
 #######################
 # Rollout / Training
@@ -104,7 +79,7 @@ def run_n_steps(env, model, N_steps=10, gamma=0.95,
     Runs up to N_steps or until done.
     Returns lists of (logprobs, values, rewards), plus the final value (G) if not done,
     and whether we ended with done or not.
-    
+
     If do_save_output=True, we will call env.save_output(...) at each step
     if (step_counter % CFG_SAVE_STEP == 0).
     """
@@ -120,11 +95,10 @@ def run_n_steps(env, model, N_steps=10, gamma=0.95,
             step_counter[0] += 1  # increment the shared list's first element
             current_step = step_counter[0]
         else:
-            current_step = steps  # fallback if we don't want a global step counter
+            current_step = steps
 
         # Possibly snapshot environment
         if do_save_output and (current_step % CFG_SAVE_STEP == 0) and (pathdir is not None):
-            # For example: s.100
             env.save_output(os.path.join(pathdir, f"s.{current_step}"))
         
         s_t = torch.from_numpy(state)
@@ -152,7 +126,6 @@ def run_n_steps(env, model, N_steps=10, gamma=0.95,
         G = torch.zeros(1)
 
     return log_probs_list, values_list, rewards_list, done, G
-
 
 def update_params(opt, log_probs_list, values_list, rewards_list, done, G, gamma=0.95):
     """
@@ -185,7 +158,6 @@ def update_params(opt, log_probs_list, values_list, rewards_list, done, G, gamma
 
     return actor_loss.item(), critic_loss.item()
 
-
 #######################
 # Worker Process
 #######################
@@ -195,47 +167,50 @@ def worker_process(worker_id, global_model, global_rewards, counter, params):
       - Creates its own env and local optimizer
       - Runs EPISODES_PER_WORKER episodes
       - Each episode can be multiple N-step rollouts until done
+      - If the agent doesn't reach done, we forcibly end after MAX_EPISODE_STEPS
       - Periodically saves environment snapshots and model checkpoints
+      - Logs only final results per episode
     """
     # Local environment
     env = Cell_Space(
         xmin=0, xmax=10, ymin=0, ymax=10, zmin=0, zmax=2,
         rcut=1.5, dt=0.1, Number=1
     )
-
+    Exit.clear()
+    Ob.clear()
+    Ob_size.clear()
+    Exit.append(np.array([0.5,1.0,0.5]))  # => (5,10,1) in domain
+    Ob1 = []
+    Ob1.append(np.array([0.5, 0.7, 0.5]))
+    Ob.append(Ob1)
+    Ob_size.append(2.0)
+    
     # Local optimizer
     worker_opt = optim.Adam(global_model.parameters(), lr=LEARNING_RATE)
 
     episodes_to_run = params['episodes']
 
-    # A small holder for environment step counting
-    # We'll store a single integer in a list so we can pass by reference
-    # step_counter[0] will track the steps in the current episode
-    step_counter = [0]
+    step_counter = [0]  # track environment steps in the current episode
 
     for ep in range(episodes_to_run):
-        # Increment the global episode counter to get a unique episode index
         with counter.get_lock():
             counter.value += 1
             global_ep = counter.value
 
         # Decide if we do environment snapshots this episode
         do_save = (global_ep % CFG_SAVE_FREQ == 0)
-
         pathdir = None
         if do_save:
             # Make a folder for this episode snapshot
-            pathdir = os.path.join(OUTPUT_DIR, f"worker_{worker_id}_case_{global_ep}")
+            pathdir = os.path.join(output_dir, f"worker_{worker_id}_case_{global_ep}")
             os.makedirs(pathdir, exist_ok=True)
-            # Save initial snapshot s.0
             env.save_output(os.path.join(pathdir, "s.0"))
 
-        # Reset step counter at the start of each episode
         step_counter[0] = 0
         total_reward = 0.0
         done = False
+        episode_steps = 0  # track how many steps for max-step enforcement
 
-        # We'll keep doing N-step chunks until done
         while not done:
             (log_probs_list, values_list, rewards_list,
              done, G) = run_n_steps(
@@ -243,27 +218,33 @@ def worker_process(worker_id, global_model, global_rewards, counter, params):
                  do_save_output=do_save, pathdir=pathdir, step_counter=step_counter
              )
 
-            # Update model
-            actor_loss, critic_loss = update_params(worker_opt, 
-                                                    log_probs_list,
-                                                    values_list,
-                                                    rewards_list,
-                                                    done, G,
-                                                    gamma=GAMMA)
+            actor_loss, critic_loss = update_params(
+                worker_opt, 
+                log_probs_list,
+                values_list,
+                rewards_list,
+                done, G,
+                gamma=GAMMA
+            )
 
-            total_reward += sum(rewards_list)
+            chunk_reward = sum(rewards_list)
+            total_reward += chunk_reward
+            episode_steps += len(rewards_list)
 
-            # If done, final snapshot
+            # If done or if we hit max steps, forcibly end
+            if episode_steps >= MAX_EPISODE_STEPS:
+                done = True
+
             if done and do_save:
                 current_step = step_counter[0]
                 env.save_output(os.path.join(pathdir, f"s.{current_step}"))
 
-        # Record the episode’s total reward
+        # Record episode reward
         global_rewards.append(total_reward)
 
         # Possibly save the model checkpoint
         if global_ep % SAVE_STEP == 0:
-            model_path = os.path.join(MODEL_SAVED_PATH,
+            model_path = os.path.join(model_saved_path,
                                       f"ActorCritic_ep{global_ep}_worker{worker_id}.pth")
             torch.save({
                 'episode': global_ep,
@@ -271,11 +252,10 @@ def worker_process(worker_id, global_model, global_rewards, counter, params):
             }, model_path)
             print(f"[Worker {worker_id}] Saved model at global episode {global_ep} -> {model_path}")
 
-        # Log
-        print(f"[Worker {worker_id}] Done Episode {ep+1}/{episodes_to_run}, "
-              f"GlobalEp={global_ep}, Reward={total_reward:.2f}, "
+        # Final log for the episode (only once)
+        print(f"[Worker {worker_id}] Episode {ep+1}/{episodes_to_run} (GlobalEp={global_ep}) done "
+              f"after {episode_steps} steps, Reward={total_reward:.2f}, "
               f"ActorLoss={actor_loss:.4f}, CriticLoss={critic_loss:.4f}")
-
 
 #######################
 # MAIN
@@ -290,9 +270,7 @@ def rolling_window_average(values, window_size=250):
         result.append(window_sum / window_len)
     return result
 
-
 if __name__ == "__main__":
-
     mp.set_start_method('spawn', force=True)  # safer start method on some systems
 
     # Global shared model
@@ -300,8 +278,8 @@ if __name__ == "__main__":
     global_model.share_memory()
 
     manager = mp.Manager()
-    global_rewards = manager.list()     # store all episode rewards
-    counter = mp.Value('i', 0)         # global episode counter
+    global_rewards = manager.list()  # store all episode rewards
+    counter = mp.Value('i', 0)       # global episode counter
 
     params = {
         'episodes': EPISODES_PER_WORKER,
@@ -309,14 +287,15 @@ if __name__ == "__main__":
 
     processes = []
     for w_id in range(NUM_WORKERS):
-        p = mp.Process(target=worker_process,
-                       args=(w_id, global_model, global_rewards, counter, params))
+        p = mp.Process(
+            target=worker_process,
+            args=(w_id, global_model, global_rewards, counter, params)
+        )
         p.start()
         processes.append(p)
 
     for p in processes:
         p.join()
-
     for p in processes:
         p.terminate()
 
@@ -325,7 +304,9 @@ if __name__ == "__main__":
     print(f"Total episodes completed across all workers: {len(episode_rewards_list)}")
 
     # Final model save after all workers done
-    final_model_path = os.path.join(MODEL_SAVED_PATH, f"ActorCritic_final_{len(episode_rewards_list)}.pth")
+    final_model_path = os.path.join(
+        model_saved_path, f"ActorCritic_final_{len(episode_rewards_list)}.pth"
+    )
     torch.save({
         'episode': len(episode_rewards_list),
         'model_state_dict': global_model.state_dict(),
@@ -336,13 +317,15 @@ if __name__ == "__main__":
     if len(episode_rewards_list) > 0:
         plt.figure()
         plt.plot(episode_rewards_list, label='Episode Reward')
-        ma_rewards = rolling_window_average(episode_rewards_list, window_size=ROLLING_WINDOW)
+        ma_rewards = rolling_window_average(
+            episode_rewards_list, window_size=ROLLING_WINDOW
+        )
         plt.plot(ma_rewards, label=f'{ROLLING_WINDOW}-Episode Avg', linewidth=2)
         plt.xlabel('Episode')
         plt.ylabel('Reward')
         plt.title('Actor-Critic: Episode Rewards')
         plt.legend()
-        plot_path = os.path.join(OUTPUT_DIR, 'actor_critic_rewards.png')
+        plot_path = os.path.join(output_dir, 'actor_critic_rewards.png')
         plt.savefig(plot_path)
         plt.close()
         print(f"Saved reward plot to {plot_path}")

@@ -6,18 +6,18 @@ import os
 # Import your environment and the DQN definition
 # e.g. from Cell_Space_Env import Cell_Space
 # and from your training code or a separate file import your DQN model
-from Continuum_Cellspace2 import Cell_Space, desire_velocity, relaxation_time, agent_size, door_size
+from Continuum_Cellspace import Cell_Space, desire_velocity, relaxation_time, agent_size, door_size
 
 # Adjust the import for your DQN if needed
-from Evacuation_Continuum_Randomize import DQN  # Or whichever file contains the DQN class definition
+from Evacuation_Continuum_1Exit_Ob_DQN_Fully_Pytorch import DQN  # Or whichever file contains the DQN class definition
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Visualizing cases for debugging
-output_dir = './Testing'
+output_dir = './testing'
 if not os.path.isdir(output_dir):
     os.mkdir(output_dir)
-output_dir = os.path.join(output_dir, 'Random_2Exits_NoObstacles')
+output_dir = os.path.join(output_dir, '1ExitDQN')
 if not os.path.isdir(output_dir):
     os.mkdir(output_dir)
 
@@ -117,20 +117,20 @@ def main():
         "rcut": 1.5,
         "dt": 0.1,
         "Number": 1,
-        "numExits": numExits,
-        "numObs": numObs
+        # "numExits": numExits,
+        # "numObs": numObs
     }
 
     # DQN's state_size: 4 + 2*numExits + 2*numObs
-    state_size = 4 + 2*numExits + 2*numObs
+    state_size = 4
     action_size = 8  # environment has 8 discrete actions
 
     # -----------------------
     # Load trained DQN model
     # -----------------------
     # Uncomment path you wish to load
-    #checkpoint_path = './model/Continuum_1ExitRandom_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep20000.pth'
-    checkpoint_path = './model/Continuum_2ExitRandom_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep50000.pth'
+    checkpoint_path = './model/Continuum_1Exit_Ob_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth'
+    #checkpoint_path = './model/Continuum_2ExitRandom_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep50000.pth'
     dqn_model = load_trained_model(checkpoint_path, state_size, action_size=action_size)
 
     # -----------------------
