@@ -28,8 +28,8 @@ if not os.path.isdir(output_dir):
 if not os.path.isdir(model_saved_path):
     os.mkdir(model_saved_path)
 
-output_dir = os.path.join(output_dir, 'Continuum_1Exit_Ob_DQN_Fully_Pytorch')
-model_saved_path = os.path.join(model_saved_path, 'Continuum_1Exit_Ob_DQN_Fully_Pytorch')
+output_dir = os.path.join(output_dir, 'Continuum_1Exit_Ob_DQN_CornerSampling_Fully_Pytorch')
+model_saved_path = os.path.join(model_saved_path, 'Continuum_1Exit_Ob_DQN_CornerSampling_Fully_Pytorch')
 
 name_mainQN = 'main_qn_1exit_ob'
 name_targetQN = 'target_qn_1exit_ob'
