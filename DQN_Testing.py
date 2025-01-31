@@ -20,8 +20,8 @@ from Continuum_Cellspace import Cell_Space, Ob, Ob_size, Exit, agent_size
 #########################
 # Hyperparameters / Config
 #########################
-TESTING_DIR = "./testing/DQN_1Exit_Ob"  # Directory to store outputs
-MODEL_PATH = "./model/Continuum_1Exit_Ob_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth"
+TESTING_DIR = "./testing/DQN_1Exit_Ob_CornerSampling"  # Directory to store outputs
+MODEL_PATH = "./model/Continuum_1Exit_Ob_DQN_CornerSampling_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth"
 
 MAX_STEPS = 2000
 GRID_SIZE = 10
@@ -325,7 +325,7 @@ def main():
             env.agent.velocity[:] = 0.
             steps_opt = run_optimal_policy(env, case_i, opt_folder, max_steps=MAX_STEPS)
 
-            results.append((case_i, dist, steps_model, steps_opt))
+            results.append((case_i, dist, steps_model, steps_opt, steps_model-steps_opt))
             difference_map[ix, iy] = steps_model - steps_opt
 
             distances_list.append(dist)
@@ -338,7 +338,7 @@ def main():
     csv_path = os.path.join(TESTING_DIR, "test_results_dqn.csv")
     with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(["case_i", "distance", "model_steps", "optimal_steps"])
+        writer.writerow(["case_i", "distance", "model_steps", "optimal_steps", "Difference"])
         for row in results:
             writer.writerow(row)
     print(f"Saved CSV results to {csv_path}")
@@ -356,15 +356,23 @@ def main():
     plt.close()
     print(f"Saved scatter plot to {scatter_path}")
 
-    # 8) Heat Map
+ # 8) Heat Map
     plt.figure()
-    im = plt.imshow(difference_map.T, origin='lower', cmap='bwr')
+
+    # Mask out NaN entries
+    valid_diff = difference_map[~np.isnan(difference_map)]
+    # Compute absolute max among valid entries
+    max_val = np.abs(valid_diff).max() if valid_diff.size > 0 else 0
+
+    im = plt.imshow(difference_map.T, origin='lower', cmap='bwr',
+                    vmin=-max_val, vmax=max_val)
     plt.colorbar(im, label='(Model Steps - Optimal Steps)')
     plt.title("DQN vs. Optimal: Step Difference Heat Map")
     heatmap_path = os.path.join(TESTING_DIR, "heatmap_dqn.png")
     plt.savefig(heatmap_path)
     plt.close()
     print(f"Saved heat map to {heatmap_path}")
+
 
     # 9) Contour+Arrow Plot in [0..1]
     contour_path = os.path.join(TESTING_DIR, "contour_arrows.png")

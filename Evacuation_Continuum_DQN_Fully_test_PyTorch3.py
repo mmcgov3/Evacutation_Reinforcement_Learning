@@ -1,3 +1,11 @@
+"""
+plot_contour_arrows.py
+
+Script to load the final DQN model from training and create a contour + arrow plot
+using the "old approach" in [-0.5..0.5] domain. It includes commented-out "trim" logic
+which you can enable or adapt if desired.
+"""
+
 import os
 import numpy as np
 import torch
@@ -5,7 +13,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
-# Your provided DQN class
+#########################
+# Paths / Config
+#########################
+
+# This should match the final model that your training script saved, e.g.
+# "Evacuation_Continuum_model_ep10000.pth"
+MODEL_PATH_FINAL = (
+    "./model/Continuum_1Exit_Ob_DQN_CornerSampling_Fully_Pytorch/"
+    "Evacuation_Continuum_model_ep10000.pth"
+)
+
+# If you want to comment out any saving:
+# PLOT_SAVE_PATH = "./output/contour_arrows.png"
+
+# Using the same DQN class as in your training code:
 class DQN(nn.Module):
     def __init__(self, state_size=4, action_size=8):
         super(DQN, self).__init__()
@@ -31,198 +53,116 @@ class DQN(nn.Module):
         x = self.fc4(x)
         return x
 
-# Set device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Assume you have these saved model paths (just examples; replace with your actual paths)
-model_saved_path_up = './model/Continuum_1ExitUp_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth'
-model_saved_path_down = './model/Continuum_1ExitDown_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth'
-model_saved_path_2exits = './model/Continuum_2Exit_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth'
-model_saved_path_4exits = './model/Continuum_4Exit_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth'
-#model_saved_path_3exits_ob = './model/Continuum_3Exits_Ob_DQN_Fully.pth'
-model_saved_path_ob_center = './model/Continuum_1Exit_Ob_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth'
-#model_saved_path_ob_up = './model/Continuum_Ob_Up_DQN_Fully.pth'
+    # Load final model checkpoint
+    if not os.path.isfile(MODEL_PATH_FINAL):
+        raise FileNotFoundError(f"Could not find final model checkpoint at {MODEL_PATH_FINAL}")
 
-# Load the models
-checkpoint_1_up = torch.load(model_saved_path_up, map_location=device)
-mainQN_Up = DQN().to(device)
-mainQN_Up.load_state_dict(checkpoint_1_up['mainQN_state_dict'])
+    checkpoint = torch.load(MODEL_PATH_FINAL, map_location=device)
 
-checkpoint_1_down = torch.load(model_saved_path_down, map_location=device)
-mainQN_down = DQN().to(device)
-mainQN_down.load_state_dict(checkpoint_1_down['mainQN_state_dict'])
+    net = DQN().to(device)
+    if "mainQN_state_dict" in checkpoint:
+        net.load_state_dict(checkpoint["mainQN_state_dict"])
+    else:
+        net.load_state_dict(checkpoint["model_state_dict"])
+    net.eval()
 
-checkpoint_2 = torch.load(model_saved_path_2exits, map_location=device)
-mainQN_2Exits = DQN().to(device)
-mainQN_2Exits.load_state_dict(checkpoint_2['mainQN_state_dict'])
+    # Build grid as in the old approach, in [-0.5..0.5] domain
+    offset = np.array([0.5, 0.5])
+    x_vals = np.linspace(0, 1, 100) - offset[0]  # effectively [-0.5..0.5]
+    y_vals = np.linspace(0, 1, 100) - offset[1]  # same
+    x, y = np.meshgrid(x_vals, y_vals)
+    xy = np.vstack([x.ravel(), y.ravel()]).T
 
-checkpoint_4 = torch.load(model_saved_path_4exits, map_location=device)
-mainQN_4Exits = DQN().to(device)
-mainQN_4Exits.load_state_dict(checkpoint_4['mainQN_state_dict'])
+    # Some velocity logic
+    vxy = np.zeros_like(xy)
+    # e.g. set vy=0.5
+    vxy[:,1] = 0.5
 
-#mainQN_3Exits_Ob = DQN().to(device)
-#mainQN_3Exits_Ob.load_state_dict(torch.load(model_saved_path_3exits_ob, map_location=device))
+    # Combined input: [x, y, vx, vy]
+    xtest = np.hstack([xy, vxy])
 
-checkpoint_1_ob_center = torch.load(model_saved_path_ob_center, map_location=device)
-mainQN_Ob_center = DQN().to(device)
-mainQN_Ob_center.load_state_dict(checkpoint_1_ob_center['mainQN_state_dict'])
+    # Forward pass
+    with torch.no_grad():
+        inp = torch.from_numpy(xtest).float().to(device)
+        qvals = net(inp).cpu().numpy()
+    action_pred = np.argmax(qvals, axis=1)
 
-#mainQN_Ob_up = DQN().to(device)
-#mainQN_Ob_up.load_state_dict(torch.load(model_saved_path_ob_up, map_location=device))
+    # Then a coarser grid for arrow overlay
+    x_vals_arrow = np.linspace(0.05, 0.95, 15) - offset[0]
+    y_vals_arrow = np.linspace(0.05, 0.95, 15) - offset[1]
+    x_arrow, y_arrow = np.meshgrid(x_vals_arrow, y_vals_arrow)
+    xy_arrow = np.vstack([x_arrow.ravel(), y_arrow.ravel()]).T
 
-# Recreate the test grids and arrays as in the original code
-offset = np.array([0.5,0.5])
-x, y = np.meshgrid(np.linspace(0,1,100)-offset[0], np.linspace(0,1,100)-offset[1])
-x_arrow, y_arrow = np.meshgrid(np.linspace(0.05,0.95,15)-offset[0], np.linspace(0.05,0.95,15)-offset[1])
-xy = np.vstack([x.ravel(), y.ravel()]).T
-xy_arrow = np.vstack([x_arrow.ravel(), y_arrow.ravel()]).T
+    vxy_arrow = np.zeros_like(xy_arrow)
+    vxy_arrow[:,1] = 0.5
+    x_arrow_test = np.hstack([xy_arrow, vxy_arrow])
 
-vxy = np.random.randn(*xy.shape)*0.
-vxy_arrow = np.random.randn(*xy_arrow.shape)*0.
+    with torch.no_grad():
+        inp_arr = torch.from_numpy(x_arrow_test).float().to(device)
+        qvals_arr = net(inp_arr).cpu().numpy()
+    action_arrow_pred = np.argmax(qvals_arr, axis=1)
 
-# Constant velocity as in original code
-vxy[:,1] = 0.5
-vxy_arrow[:,1] = 0.5
+    # -------------------------------
+    # (Optionally) Manual overrides ("trim" logic)
+    # Uncomment any region you want to experiment with:
 
-xtest = np.hstack([xy, vxy])
-x_arrow_test = np.hstack([xy_arrow, vxy_arrow])
+    ### Example: Ob Up trim
+    # action_pred[((xy[:,1]-0.5)**2 + (xy[:,0]+0.5)**2 < 0.45**2) & (action_pred==0)] = 7
+    # action_pred[(((xy[:,1]-0.5)**2 + (xy[:,0]-0.5)**2)>0.47**2) &
+    #             (((xy[:,1]-0.5)**2 + (xy[:,0]-0.5)**2)<0.52**2) & 
+    #             (action_pred==1)] = 0
+    #
+    # action_arrow_pred[(((xy_arrow[:,1]-0.5)**2 + (xy_arrow[:,0]+0.5)**2)<0.45**2) &
+    #                   (action_arrow_pred==0)] = 7
+    #
+    # action_arrow_pred[(((xy_arrow[:,1]-0.5)**2 + (xy_arrow[:,0]-0.5)**2)<0.48**2) &
+    #                   (action_arrow_pred==0)] = 1
 
-# Convert to torch tensors
-xtest_t = torch.from_numpy(xtest).float().to(device)
-x_arrow_test_t = torch.from_numpy(x_arrow_test).float().to(device)
+    # More override blocks can be placed here...
+    # End manual overrides
+    # -------------------------------
 
-with torch.no_grad():
-    # Example: Using mainQN_Up
-    # ypred_up = mainQN_Up(xtest_t).cpu().numpy()
-    # ypred_arrow_up = mainQN_Up(x_arrow_test_t).cpu().numpy()
-    
-    # Similarly for others:
-    ypred_down = mainQN_down(xtest_t).cpu().numpy()
-    ypred_arrow_down = mainQN_down(x_arrow_test_t).cpu().numpy()
-    
-    ypred_2exits = mainQN_2Exits(xtest_t).cpu().numpy()
-    ypred_arrow_2exits = mainQN_2Exits(x_arrow_test_t).cpu().numpy()
-    
-    ypred_4exits = mainQN_4Exits(xtest_t).cpu().numpy()
-    ypred_arrow_4exits = mainQN_4Exits(x_arrow_test_t).cpu().numpy()
-    
-    # ypred_3exits_ob = mainQN_3Exits_Ob(xtest_t).cpu().numpy()
-    # ypred_arrow_3exits_ob = mainQN_3Exits_Ob(x_arrow_test_t).cpu().numpy()
-    
-    ypred_ob_center = mainQN_Ob_center(xtest_t).cpu().numpy()
-    ypred_arrow_ob_center = mainQN_Ob_center(x_arrow_test_t).cpu().numpy()
-    
-    # ypred_ob_up = mainQN_Ob_up(xtest_t).cpu().numpy()
-    # ypred_arrow_ob_up = mainQN_Ob_up(x_arrow_test_t).cpu().numpy()
+    # Reshape action_pred for contour
+    action_grid = action_pred.reshape(x.shape)
 
-# Combine or select one of the model outputs as the original code did:
-# In your original code, you repeatedly overwrote 'ypred' and 'ypred_arrow' as you tested different models.
-# Now, you can choose which model's output you'd like to plot. Let's say we choose `ypred_up` for demonstration.
+    # Plot
+    fig, ax = plt.subplots(1,1, figsize=(5,5),
+                           subplot_kw={'xlim':(-0.5,0.5), 'ylim':(-0.5,0.5)})
+    contour = ax.contourf(x, y, action_grid+0.1, cmap=plt.cm.rainbow, alpha=0.8)
 
-action_pred = np.argmax(ypred_ob_center, axis=1)
-action_arrow_pred = np.argmax(ypred_arrow_ob_center, axis=1)
+    # Build arrow directions
+    arrow_len = 0.07
+    angle = np.sqrt(2)/2
+    arrow_map = {
+        0: [0, arrow_len],  
+        1: [-angle*arrow_len, angle*arrow_len],
+        2: [-arrow_len, 0],
+        3: [-angle*arrow_len, -angle*arrow_len],
+        4: [0, -arrow_len],
+        5: [angle*arrow_len, -angle*arrow_len],
+        6: [arrow_len, 0],
+        7: [angle*arrow_len, angle*arrow_len],
+    }
 
-###up tirm 0.5 v1
-# action_pred[((xy[:,1] >0.3) & (xy[:,0] <-0.3) )] = 6
-# action_pred[( (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]- 0.5 )**2 ) >0.55)  & (action_pred == 1) )] = 0
-# action_arrow_pred[((xy_arrow[:,1]>0.3) & (xy_arrow[:,0] <-0.3) )] = 6
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0.5 )**2 + 
-#                                 (xy_arrow[:,0]- 0.5 )**2 ) >0.55) 
-#                                 &(action_arrow_pred == 1) )] = 0
+    for idx, p in enumerate(xy_arrow):
+        dx, dy = arrow_map[action_arrow_pred[idx]]
+        ax.annotate('', xy=p, xytext=p + np.array([dx, dy]),
+                    arrowprops=dict(arrowstyle='<|-', color='k', lw=1.5))
 
-###down tirm 0.5 v1
-# action_pred[((xy[:,1]>0) & (xy[:,0] >-0.4) & (xy[:,0] <0))] = 4
-# action_arrow_pred[((xy_arrow[:,1]>0) & (xy_arrow[:,0] >-0.4) & (xy_arrow[:,0] <0))] = 4
+    ax.tick_params(labelsize='large')
+    plt.title("Contour + Arrows (Loaded DQN Final Model)")
 
+    # (Optional) save figure to file (commented out):
+    # if not os.path.isdir("./output"):
+    #     os.mkdir("./output")
+    # plot_save_path = os.path.join("./output", "contour_arrows.png")
+    # plt.savefig(plot_save_path)
 
-#####2 exits trim
-# action_pred[( (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]- 0.5 )**2 ) <0.5)  & (action_pred == 0) )] = 1
-# action_pred[( (np.sqrt((xy[:,1]+ 0.5 )**2 + (xy[:,0]+ 0.5 )**2 ) <0.45)  & (action_pred == 4) )] = 5
-# action_pred[( (np.sqrt((xy[:,1]+ 0.5 )**2 + (xy[:,0]- 0.5 )**2 ) <0.47)  & (action_pred == 4) )] = 3
-# # 
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0.5 )**2 + 
-#                                 (xy_arrow[:,0]- 0.5 )**2 ) <0.5) 
-#                                 &(action_arrow_pred == 0) )] = 1        
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]+ 0.5 )**2 + 
-#                                 (xy_arrow[:,0]+ 0.5 )**2 ) <0.45) 
-#                                 &(action_arrow_pred == 4) )] = 5 
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]+ 0.5 )**2 + 
-#                                 (xy_arrow[:,0]- 0.5 )**2 ) <0.47) 
-#                                 &(action_arrow_pred == 4) )] = 3     
+    plt.show()
 
 
-# #####4 exits trim
-# action_pred[( (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]+ 0.5 )**2 ) >0.47) & (xy[:,0] < 0.12)  & (action_pred == 7) )] = 0
-
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0.5 )**2 + 
-#                                 (xy_arrow[:,0]+ 0.5 )**2 ) >0.47) & (xy_arrow[:,0] <0.12)
-#                                 &(action_arrow_pred == 7) )] = 0        
-
-
-# #####Ob center trim
-action_pred[( (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]+ 0.5 )**2 ) <0.48) & (action_pred == 0) )] = 7
-action_pred[( (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]- 0.5 )**2 ) <0.48) & (action_pred == 0) )] = 1
-
-action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0.5 )**2 + 
-                                (xy_arrow[:,0]+ 0.5 )**2 ) <0.48)
-                                &(action_arrow_pred == 0) )] = 7
-
-action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0.5 )**2 + 
-                                (xy_arrow[:,0]- 0.5 )**2 ) <0.48)
-                                &(action_arrow_pred == 0) )] = 1       
-
-
-
-# #####Ob Up trim
-# action_pred[( (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]+ 0.5 )**2 ) <0.45) & (action_pred == 0) )] = 7
-# action_pred[( (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]- 0.5 )**2 ) >0.47) &
-#                 (np.sqrt((xy[:,1]- 0.5 )**2 + (xy[:,0]- 0.5 )**2 ) <0.52)& 
-#                 (action_pred == 1) )] = 0
-
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0.5 )**2 + 
-#                                 (xy_arrow[:,0]+ 0.5 )**2 ) <0.45)
-#                                 &(action_arrow_pred == 0) )] = 7
-
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0.5 )**2 + 
-#                                 (xy_arrow[:,0]- 0.5 )**2 ) <0.48)
-#                                 &(action_arrow_pred == 0) )] = 1      
-
-
-# #####3 exits 2 ob trim
-# action_pred[( (np.sqrt((xy[:,1]+ 0.5 )**2 + (xy[:,0]+ 0.5 )**2 ) <0.45) & (action_pred == 7) )] = 6
-# action_pred[( (np.sqrt((xy[:,1]- 0. )**2 + (xy[:,0]- 0.5 )**2 ) <0.26) &
-#                 (action_pred == 2) )] = 7
-# #
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]+ 0.5 )**2 + 
-#                                 (xy_arrow[:,0]+ 0.5 )**2 ) <0.45)
-#                                 &(action_arrow_pred == 7) )] = 6
-# ##    
-# action_arrow_pred[( (np.sqrt((xy_arrow[:,1]- 0. )**2 + 
-#                                 (xy_arrow[:,0]- 0.5 )**2 ) <0.26)
-#                                 &(action_arrow_pred == 2) )] = 7  
-
-
-action_grid = action_pred.reshape(x.shape)
-
-fig, ax = plt.subplots(1,1, figsize=(5,5), subplot_kw={'xlim':(-0.5,0.5), 'ylim':(-0.5,0.5)})
-contour = ax.contourf(x, y, action_grid+0.1, cmap=plt.cm.get_cmap('rainbow'), alpha=0.8)
-
-arrow_len = 0.07
-angle = np.sqrt(2)/2
-arrow_map = {
-    0 : [0, arrow_len], 
-    1: [-angle * arrow_len, angle * arrow_len],
-    2 : [-arrow_len, 0],
-    3: [-angle * arrow_len, -angle * arrow_len],
-    4 : [0, -arrow_len],
-    5: [angle * arrow_len, -angle * arrow_len],
-    6 : [arrow_len, 0],
-    7: [angle * arrow_len, angle * arrow_len],
-}
-
-for idx, p in enumerate(xy_arrow):
-    ax.annotate('', xy=p, xytext=np.array(arrow_map[action_arrow_pred[idx]]) + p,
-                arrowprops=dict(arrowstyle='<|-', color='k', lw=1.5))
-
-ax.tick_params(labelsize='large')
-plt.show()
+if __name__ == "__main__":
+    main()
