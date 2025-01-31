@@ -15,7 +15,8 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import csv
 
-from Continuum_Cellspace import Cell_Space, Ob, Ob_size, Exit, agent_size
+#from Continuum_Cellspace import Cell_Space, Ob, Ob_size, Exit, agent_size
+from Continuum_Cellspace import *
 
 #########################
 # Hyperparameters / Config

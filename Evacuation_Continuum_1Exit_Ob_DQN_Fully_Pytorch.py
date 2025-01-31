@@ -13,12 +13,6 @@ np.random.seed(43)
 torch.manual_seed(43)
 
 Number_Agent = 1
-Exit.append(np.array([0.5, 1.0, 0.5]))  # Add exit on the top wall
-
-Ob1 = []
-Ob1.append(np.array([0.5, 0.7, 0.5]))
-Ob.append(Ob1)
-Ob_size.append(2.0)
 
 output_dir = './output'
 model_saved_path = './model'

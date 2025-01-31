@@ -21,11 +21,16 @@ cfg_save_step = 1                       #time steps interval for saving Cfg file
 
 ######Initialize Exit positions range [0, 1]
 Exit = []  ###No exit
+Exit.append(np.array([0.5, 1.0, 0.5]))  # Add exit on the top wall
+
 
 ######Initialize obstacles
 Ob = []   ###No obstable
 Ob_size = []
-
+Ob1 = []
+Ob1.append(np.array([0.5, 0.7, 0.5]))
+Ob.append(Ob1)
+Ob_size.append(2.0)
 #################
 #Exit.append( np.array([0.7, 1.0, 0.5]) )  ##Add Up exit
 #Exit.append( np.array([0.5, 0, 0.5]) )     ##Add Down Exit
