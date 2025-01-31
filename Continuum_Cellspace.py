@@ -2,7 +2,7 @@
 
 import numpy as np
 import os
-### Change
+### Change 2
 ######Initialize systerm parameters
 f_wall_lim = 100.0                      #set the magnitude of the wall repulsion force
 f_collision_lim = 100.0                 #set the magnitude of the particle collision force
