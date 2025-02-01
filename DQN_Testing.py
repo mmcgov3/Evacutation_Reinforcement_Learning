@@ -21,8 +21,8 @@ from Continuum_Cellspace import *
 #########################
 # Hyperparameters / Config
 #########################
-TESTING_DIR = "./testing/DQN_1Exit_Ob_CornerSampling"  # Directory to store outputs
-MODEL_PATH = "./model/Continuum_1Exit_Ob_DQN_CornerSampling_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth"
+TESTING_DIR = "./testing/Continuum_1Exit_ObMoving_DQN_Fully_Pytorch"  # Directory to store outputs
+MODEL_PATH = "./model/Continuum_1Exit_ObMoving_DQN_Fully_Pytorch/Evacuation_Continuum_model_ep10000.pth"
 
 MAX_STEPS = 2000
 GRID_SIZE = 10
