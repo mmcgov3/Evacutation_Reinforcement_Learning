@@ -14,15 +14,15 @@ torch.manual_seed(43)
 
 Number_Agent = 1
 
-# We'll define the single obstacle up front, at x=0.5, y=0.7, z=0.5
-# We want it to move side-to-side between x=0.2 and x=0.8
+# We'll define the single obstacle up front, at x=0.5, y=0.7, z=0.5.
+# We want it to move side-to-side between normalized x=0.2 and x=0.8.
 EXIT_POS = np.array([0.5, 1.0, 0.5])   # The top wall exit
 OBSTACLE_INIT = np.array([0.5, 0.7, 0.5])
 OBSTACLE_X_MIN = 0.2
 OBSTACLE_X_MAX = 0.8
 OBSTACLE_SPEED = 0.01   # movement step per environment step
 
-# Clear any previous data
+# Clear any previous data in the global obstacle lists
 Exit.clear()
 Ob.clear()
 Ob_size.clear()
@@ -32,7 +32,7 @@ Exit.append(EXIT_POS)
 
 # Add the single obstacle
 Ob1 = []
-Ob1.append(OBSTACLE_INIT.copy())  # x=0.5, y=0.7, z=0.5
+Ob1.append(OBSTACLE_INIT.copy())  # start at [0.5, 0.7, 0.5]
 Ob.append(Ob1)
 Ob_size.append(2.0)
 
@@ -123,7 +123,6 @@ def load_checkpoint_if_exists(model_saved_path, mainQN, targetQN, optimizer):
     # Mimic original logic: If there is a checkpoint, load it
     checkpoint_files = [f for f in os.listdir(model_saved_path) if f.endswith('.pth')]
     if len(checkpoint_files) > 0:
-        # For simplicity, pick the first or latest checkpoint
         checkpoint_files.sort()
         latest_ckpt = os.path.join(model_saved_path, checkpoint_files[-1])
         checkpoint = torch.load(latest_ckpt, map_location=device)
@@ -162,12 +161,11 @@ def rolling_window_average(values, window_size=250):
         result.append(window_sum / window_len)
     return result
 
-
 if __name__ == '__main__':
 
     # We track the obstacle's side-to-side motion with these variables:
-    obstacle_x = 0.5        # start at x=0.5
-    obstacle_x_vel =  OBSTACLE_SPEED  # +0.01 or so, and we flip sign as we hit boundaries
+    obstacle_x = OBSTACLE_INIT[0]  # start at normalized x=0.5
+    obstacle_x_vel = OBSTACLE_SPEED  # movement speed; will flip sign upon hitting boundaries
 
     # Build environment
     env = Cell_Space(0, GRID_SIZE, 0, GRID_SIZE, 0, 2, rcut=1.5, dt=delta_t, Number=Number_Agent)
@@ -217,37 +215,26 @@ if __name__ == '__main__':
 
         # Reset environment
         state = env.reset()
-        # Also reset obstacle to its initial x=0.5 (and y=0.7) each new episode
-        obstacle_x = 0.5
-        obstacle_x_vel = OBSTACLE_SPEED  # start moving to the right
+        # Reset the obstacle to its original location at the start of each episode
+        obstacle_x = OBSTACLE_INIT[0]  # normalized x=0.5
+        obstacle_x_vel = OBSTACLE_SPEED  # reset speed/direction
 
-        # Possibly place agent in corners 15% of the time
+        # Optionally force the agent into one of the corners 15% of the time
         r = np.random.rand()
         if r < 0.15:
-            # We want to force the agent into one of the 4 "corner" subregions
-            # in normalized [0..1] coordinates:
-            #   x in [0..0.25] or [0.75..1],  y in [0..0.25] or [0.75..1]
-            
-            # Pick x-range
             if np.random.rand() < 0.5:
-                x_val = np.random.uniform(0.0, 0.25)   # left side
+                x_val = np.random.uniform(0.0, 0.25)
             else:
-                x_val = np.random.uniform(0.75, 1.0)   # right side
-
-            # Pick y-range
+                x_val = np.random.uniform(0.75, 1.0)
             if np.random.rand() < 0.5:
-                y_val = np.random.uniform(0.0, 0.25)   # bottom side
+                y_val = np.random.uniform(0.0, 0.25)
             else:
-                y_val = np.random.uniform(0.75, 1.0)   # top side
-
-            # Convert normalized [0..1] -> [0..GRID_SIZE]
+                y_val = np.random.uniform(0.75, 1.0)
             agent_x = x_val * GRID_SIZE
             agent_y = y_val * GRID_SIZE
-
             env.agent.position[0] = agent_x
             env.agent.position[1] = agent_y
 
-        # Rebuild state from forced position
         state = (env.agent.position[0], env.agent.position[1],
                  env.agent.velocity[0], env.agent.velocity[1])
 
@@ -257,10 +244,8 @@ if __name__ == '__main__':
             # 1) Epsilon decay
             epsilon = explore_stop + (explore_start - explore_stop) * np.exp(-decay_rate * ep / train_episodes)
 
-            # 2) Move the obstacle side-to-side each step
-            # Update the obstacle's x
+            # 2) Update obstacle position for this time step
             obstacle_x += obstacle_x_vel
-            # If we hit the boundary, flip sign
             if obstacle_x > OBSTACLE_X_MAX:
                 obstacle_x = OBSTACLE_X_MAX
                 obstacle_x_vel = -obstacle_x_vel
@@ -268,9 +253,11 @@ if __name__ == '__main__':
                 obstacle_x = OBSTACLE_X_MIN
                 obstacle_x_vel = -obstacle_x_vel
 
-            # Overwrite obstacle position in Ob array
-            # Our single obstacle is Ob[0][0] -> x=obstacle_x, y=0.7, z=0.5
-            Ob[0][0][0] = obstacle_x   # keep y=0.7, z=0.5 unchanged
+            # Calculate the new absolute position of the obstacle using the environment's scaling.
+            # env.L[:, 0] is the lower bound and env.L[:,1]-env.L[:,0] is the range in each dimension.
+            new_obs = env.L[:, 0] + np.array([obstacle_x, OBSTACLE_INIT[1], OBSTACLE_INIT[2]]) * (env.L[:, 1] - env.L[:, 0])
+            # Update the obstacle position in the environment.
+            env.Ob[0][0] = new_obs
 
             # 3) Build feed_state for network
             feed_state = np.array(state, dtype=np.float32)
@@ -323,30 +310,24 @@ if __name__ == '__main__':
                 next_states = torch.from_numpy(b_next).to(device)
                 finish      = torch.from_numpy(b_done).to(device)
 
-                # target Q
                 with torch.no_grad():
                     targetQ = targetQN(next_states)
                     max_targetQ, _ = torch.max(targetQ, dim=1)
                     max_targetQ[finish] = 0.0
                     target_values = rewards + gamma * max_targetQ
 
-                # current Q
                 currentQ = mainQN(states)
                 currentQ = currentQ.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-                # compute loss
                 loss = nn.SmoothL1Loss()(currentQ, target_values)
 
-                # backward
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                # track
                 episode_loss_sum += loss.item()
                 episode_loss_count += 1
 
-        # End of the episode
         if episode_loss_count > 0:
             avg_loss = episode_loss_sum / episode_loss_count
         else:
@@ -355,12 +336,10 @@ if __name__ == '__main__':
         episode_losses.append(avg_loss)
         episode_rewards.append(total_reward)
 
-        # logs
         if len(memory.buffer) == memory_size:
             print(f"Episode: {ep}, Steps: {t}, Epsilon: {epsilon:.3f}, "
                   f"Reward: {total_reward:.2f}, Loss: {avg_loss:.7f}")
 
-        # Save model periodically
         if ep % save_step == 0:
             save_path = os.path.join(model_saved_path, f"Evacuation_Continuum_model_ep{ep}.pth")
             torch.save({
@@ -370,11 +349,9 @@ if __name__ == '__main__':
                 'optimizer_state_dict': optimizer.state_dict()
             }, save_path)
 
-        # Update target network
         if ep % update_target_every == 0:
             soft_update(targetQN, mainQN, tau)
 
-    # final model save
     save_path = os.path.join(model_saved_path, f"Evacuation_Continuum_model_ep{train_episodes}.pth")
     torch.save({
         'episode': train_episodes,
@@ -399,7 +376,6 @@ if __name__ == '__main__':
     ma_losses = rolling_window_average(episode_losses, window_size=250)
     ma_rewards = rolling_window_average(episode_rewards, window_size=250)
 
-    # 1) Loss plot
     plt.figure()
     plt.plot(episode_losses, label='Loss per Episode')
     plt.plot(ma_losses, label='Rolling Avg (250) Loss', linewidth=2)
@@ -410,7 +386,6 @@ if __name__ == '__main__':
     plt.savefig(os.path.join(output_dir, 'loss_plot.png'))
     plt.close()
 
-    # 2) Reward plot
     plt.figure()
     plt.plot(episode_rewards, label='Reward per Episode')
     plt.plot(ma_rewards, label='Rolling Avg (250) Reward', linewidth=2)
