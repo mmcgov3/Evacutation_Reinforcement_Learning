@@ -175,11 +175,11 @@ def distance_from_exit(x, y):
 def run_trained_model(env, net, case_i, model_pathdir, max_steps=2000):
     """
     Calls agent_dqn_step in a loop, saving snapshots each step.
-    Resets the obstacle's state at the beginning of each test case.
+    Resets the obstacle's state and fixes the random seed for reproducibility.
     Returns the step count used.
     """
     global obstacle_x, obstacle_x_vel
-    # Reset environment and obstacle state
+    np.random.seed(case_i)  # Set seed to ensure same starting configuration
     env.reset()
     obstacle_x = OBSTACLE_INIT[0]
     obstacle_x_vel = OBSTACLE_SPEED
@@ -196,11 +196,11 @@ def run_trained_model(env, net, case_i, model_pathdir, max_steps=2000):
 def run_optimal_policy(env, case_i, opt_pathdir, max_steps=2000):
     """
     Calls agent_optimal_step in a loop, saving snapshots each step.
-    Resets the obstacle's state at the beginning of each test case.
+    Resets the obstacle's state and fixes the random seed for reproducibility.
     Returns the step count used.
     """
     global obstacle_x, obstacle_x_vel
-    # Reset environment and obstacle state
+    np.random.seed(case_i)  # Set the same seed so that starting configuration is identical
     env.reset()
     obstacle_x = OBSTACLE_INIT[0]
     obstacle_x_vel = OBSTACLE_SPEED
@@ -344,12 +344,14 @@ def main():
             os.makedirs(opt_folder, exist_ok=True)
 
             # Model run
+            np.random.seed(case_i)  # Set seed so that both runs share the same starting configuration
             env.reset()
             env.agent.position[:] = (x_, y_, 1.0)
             env.agent.velocity[:] = 0.0
             steps_model = run_trained_model(env, net, case_i, model_folder, max_steps=MAX_STEPS)
 
             # Optimal run
+            np.random.seed(case_i)  # Reset seed to ensure identical starting conditions
             env.reset()
             env.agent.position[:] = (x_, y_, 1.0)
             env.agent.velocity[:] = 0.0
